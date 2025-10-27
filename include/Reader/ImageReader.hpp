@@ -1,7 +1,6 @@
 ﻿#pragma once
 #include "ImageData.hpp"
 #include "Util/General.hpp"
-#include <filesystem>
 
 namespace RSPIP {
 
@@ -31,7 +30,8 @@ inline std::shared_ptr<ImageData> GeoImageRead(const std::string &imagePath) {
             continue;
 
         auto pixelValueType = band->GetRasterDataType();
-        cv::Mat buffer(imgHeight, imgWidth, GDALTypeToCVType(pixelValueType));
+        cv::Mat buffer(imgHeight, imgWidth,
+                       Util::GDALTypeToCVType(pixelValueType));
         CPLErr err =
             band->RasterIO(GF_Read, 0, 0, imgWidth, imgHeight, buffer.data,
                            imgWidth, imgHeight, pixelValueType, 0, 0);
@@ -63,12 +63,10 @@ NormalImageRead(const std::string &imagePath) {
 }
 
 inline std::shared_ptr<ImageData> ImageRead(const std::string &imagePath) {
-    std::string ext = std::filesystem::path(imagePath).extension().string();
-    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 
-    if (ext == ".tif" || ext == ".tiff")
+    if (Util::IsGeoImage(imagePath)) {
         return GeoImageRead(imagePath);
-    else if (ext == ".jpg" || ext == ".jpeg" || ext == ".png") {
+    } else {
         return NormalImageRead(imagePath);
     }
 
