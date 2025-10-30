@@ -40,10 +40,11 @@ inline std::shared_ptr<ImageData> GeoImageRead(const std::string &imagePath) {
             continue;
         }
 
-        img->Data.push_back(buffer);
+        img->BandDatas.push_back(buffer);
         img->DataType.push_back(GDALGetDataTypeName(band->GetRasterDataType()));
     }
 
+    img->MergeDataFromBands();
     GDALClose(dataset);
 
     return img;
@@ -56,7 +57,8 @@ NormalImageRead(const std::string &imagePath) {
         throw std::runtime_error("Failed to read image: " + imagePath);
 
     auto imageData = std::make_shared<ImageData>();
-    imageData->Data.push_back(img);
+    imageData->BandDatas.push_back(img);
+    imageData->MergeDataFromBands();
     imageData->ImageName = imagePath;
     imageData->DataType.push_back("uint8");
     return imageData;

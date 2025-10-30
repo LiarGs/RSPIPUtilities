@@ -39,8 +39,8 @@ inline bool SaveGeoImage(const std::shared_ptr<ImageData> &image,
             continue;
 
         CPLErr err = band->RasterIO(
-            GF_Write, 0, 0, imgWidth, imgHeight, image->Data[imgBands - b].data,
-            imgWidth, imgHeight,
+            GF_Write, 0, 0, imgWidth, imgHeight,
+            image->BandDatas[imgBands - b].data, imgWidth, imgHeight,
             Util::CVTypeToGDALType(image->GetImageType(imgBands - b)), 0, 0);
         if (err != CE_None) {
             Error("Error writing band {}", b);
@@ -58,7 +58,7 @@ inline bool SaveNonGeoImage(const std::shared_ptr<ImageData> &image,
                             const std::string &imagePath) {
     std::filesystem::path pathObj(imagePath);
     std::string extension = pathObj.extension().string();
-    cv::Mat mergedImg = image->GetMergedData();
+    const cv::Mat &mergedImg = image->GetMergedData();
     bool success = cv::imwrite(imagePath, mergedImg);
     if (!success) {
         throw std::runtime_error("Failed to write image: " + imagePath);

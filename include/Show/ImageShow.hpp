@@ -3,6 +3,30 @@
 
 namespace RSPIP {
 
+inline void PrintImageInfo(const std::shared_ptr<ImageData> &image) {
+    if (!image) {
+        throw std::runtime_error("Image pointer is null.");
+    }
+    Info("Image Name: {} Dimensions: {} x {}", image->ImageName, image->Width(),
+         image->Height());
+    Info("Number of Bands: {}", image->GetBandCounts());
+    for (size_t i = 0; i < image->DataType.size(); ++i) {
+        Info("  Band {}: Type = {}", i + 1, image->DataType[i]);
+    }
+    // GeoInfo
+    if (!image->Projection.empty()) {
+        Info("Projection:\n {}", image->Projection);
+    }
+    if (image->GeoTransform.size() == 6) {
+        Info("GeoTransform:\n [{}, {}, {}, {}, {}, {}]", image->GeoTransform[0],
+             image->GeoTransform[1], image->GeoTransform[2],
+             image->GeoTransform[3], image->GeoTransform[4],
+             image->GeoTransform[5]);
+    }
+    Info("Latitude/Longitude of Top-Left Pixel (0,0): ({}, {})",
+         image->GetLatitude(0, 0), image->GetLongitude(0, 0));
+}
+
 inline void ShowImage(const std::shared_ptr<ImageData> &image, size_t band) {
     if (!image) {
         throw std::runtime_error("Image pointer is null.");
@@ -12,7 +36,7 @@ inline void ShowImage(const std::shared_ptr<ImageData> &image, size_t band) {
                                  std::to_string(band));
     }
 
-    auto displayImg = image->Data[band - 1];
+    auto displayImg = image->BandDatas[band - 1];
 
     if (displayImg.empty()) {
         throw std::runtime_error("Image band " + std::to_string(band) +
@@ -30,12 +54,10 @@ inline void ShowImage(const std::shared_ptr<ImageData> &image) {
     if (!image) {
         throw std::runtime_error("Image pointer is null.");
     }
-    if (image->Data.empty()) {
-        throw std::runtime_error("No image data to show.");
-    }
 
     cv::namedWindow(image->ImageName, cv::WINDOW_NORMAL);
     cv::imshow(image->ImageName, image->GetMergedData());
+    PrintImageInfo(image);
 
     cv::waitKey(0);
 }

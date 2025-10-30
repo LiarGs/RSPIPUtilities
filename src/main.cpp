@@ -20,6 +20,7 @@ int main() {
 
         RSPIP::ShowImage(img);
         RSPIP::SaveImage(img, saveImagePath);
+
     } catch (const std::exception &e) {
         std::cerr << e.what() << std::endl;
         return 1;
