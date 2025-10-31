@@ -9,9 +9,8 @@ class ImageData {
   public:
     std::vector<cv::Mat> BandDatas; // Pixel data(BGRA bands stored separately)
     std::string ImageName;
-    std::vector<std::string> DataType; // e.g. "uint8", "float32"
-    std::string Projection;            // CRS (for GeoTIFF)
-    std::vector<double> GeoTransform;  // Affine transform (6 elements)
+    std::string Projection;           // CRS (for GeoTIFF)
+    std::vector<double> GeoTransform; // Affine transform (6 elements)
 
     int Height() const { return static_cast<int>(BandDatas[0].rows); }
     int Width() const { return static_cast<int>(BandDatas[0].cols); }

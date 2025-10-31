@@ -41,7 +41,6 @@ inline std::shared_ptr<ImageData> GeoImageRead(const std::string &imagePath) {
         }
 
         img->BandDatas.push_back(buffer);
-        img->DataType.push_back(GDALGetDataTypeName(band->GetRasterDataType()));
     }
 
     img->MergeDataFromBands();
@@ -60,7 +59,6 @@ NormalImageRead(const std::string &imagePath) {
     imageData->BandDatas.push_back(img);
     imageData->MergeDataFromBands();
     imageData->ImageName = imagePath;
-    imageData->DataType.push_back("uint8");
     return imageData;
 }
 

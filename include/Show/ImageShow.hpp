@@ -7,12 +7,9 @@ inline void PrintImageInfo(const std::shared_ptr<ImageData> &image) {
     if (!image) {
         throw std::runtime_error("Image pointer is null.");
     }
-    Info("Image Name: {} Dimensions: {} x {}", image->ImageName, image->Width(),
-         image->Height());
+    Info("Image Name: {} Dimensions: {} x {}, DataType: {}", image->ImageName,
+         image->Width(), image->Height(), image->GetMergedData().type());
     Info("Number of Bands: {}", image->GetBandCounts());
-    for (size_t i = 0; i < image->DataType.size(); ++i) {
-        Info("  Band {}: Type = {}", i + 1, image->DataType[i]);
-    }
     // GeoInfo
     if (!image->Projection.empty()) {
         Info("Projection:\n {}", image->Projection);
