@@ -32,33 +32,40 @@ inline bool SaveGeoImage(const std::shared_ptr<ImageData> &image,
         dataset->SetGeoTransform(image->GeoTransform.data());
     }
 
+    std::vector<cv::Mat> allChannels;
+    cv::split(image->BGRData, allChannels);
+    reverse(allChannels.begin(), allChannels.end());
+
+    for (const auto &extraBand : image->ExtraBandDatas) {
+        allChannels.push_back(extraBand);
+    }
+
     // Write bands in reverse order to maintain correct channel order(BGRA)
-    for (int b = imgBands; b > 0; --b) {
-        GDALRasterBand *band = dataset->GetRasterBand(b);
+    for (int bandCount = 1; bandCount <= imgBands; ++bandCount) {
+        GDALRasterBand *band = dataset->GetRasterBand(bandCount);
         if (!band)
             continue;
 
-        CPLErr err = band->RasterIO(
-            GF_Write, 0, 0, imgWidth, imgHeight,
-            image->BandDatas[imgBands - b].data, imgWidth, imgHeight,
-            Util::CVTypeToGDALType(image->GetImageType(imgBands - b)), 0, 0);
+        CPLErr err =
+            band->RasterIO(GF_Write, 0, 0, imgWidth, imgHeight,
+                           allChannels[bandCount - 1].data, imgWidth, imgHeight,
+                           Util::CVTypeToGDALType(image->GetImageType()), 0, 0);
         if (err != CE_None) {
-            Error("Error writing band {}", b);
+            Error("Error writing band {}", bandCount);
             GDALClose(dataset);
             return false;
         }
     }
 
     GDALClose(dataset);
+    GDALDestroyDriverManager();
     Info("Image saved successfully: {}", imagePath);
     return true;
 }
 
 inline bool SaveNonGeoImage(const std::shared_ptr<ImageData> &image,
                             const std::string &imagePath) {
-    std::filesystem::path pathObj(imagePath);
-    std::string extension = pathObj.extension().string();
-    const cv::Mat &mergedImg = image->GetMergedData();
+    const cv::Mat &mergedImg = image->BGRData;
     bool success = cv::imwrite(imagePath, mergedImg);
     if (!success) {
         throw std::runtime_error("Failed to write image: " + imagePath);

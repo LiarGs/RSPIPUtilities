@@ -1,5 +1,6 @@
 ﻿#pragma once
 #include "SuperDebug.hpp"
+#include "gdal_priv.h"
 #include <opencv2/opencv.hpp>
 
 namespace RSPIP {
@@ -7,26 +8,22 @@ namespace RSPIP {
 // Represents image data + metadata (geospatial or simple image)
 class ImageData {
   public:
-    std::vector<cv::Mat> BandDatas; // Pixel data(BGRA bands stored separately)
+    GDALDataset *dataset;
+    cv::Mat BGRData;                     // Pixel data (BGRA merged)
+    std::vector<cv::Mat> ExtraBandDatas; // Extra band data
     std::string ImageName;
     std::string Projection;           // CRS (for GeoTIFF)
     std::vector<double> GeoTransform; // Affine transform (6 elements)
+    cv::Vec3b NonData;
 
-    int Height() const { return static_cast<int>(BandDatas[0].rows); }
-    int Width() const { return static_cast<int>(BandDatas[0].cols); }
-    int GetBandCounts() const { return static_cast<int>(BandDatas.size()); }
+    ImageData()
+        : dataset(nullptr), ImageName("Defalut.png"), Projection(""),
+          GeoTransform(6, 0.0), NonData(0, 0, 0) {}
 
-    void MergeDataFromBands() {
-        if (BandDatas.empty()) {
-            Error("No band data to merge.");
-            throw std::runtime_error("No band data to merge.");
-        }
-        cv::merge(BandDatas, _MergedData);
-    }
-
-    cv::Mat &GetMergedData() {
-        MergeDataFromBands();
-        return _MergedData;
+    int Height() const { return static_cast<int>(BGRData.rows); }
+    int Width() const { return static_cast<int>(BGRData.cols); }
+    int GetBandCounts() const {
+        return static_cast<int>(ExtraBandDatas.size() + 3);
     }
 
     uchar GetPixelValue(int row, int col, int band) const {
@@ -41,7 +38,7 @@ class ImageData {
             throw std::runtime_error("Pixel position or Band out of range.");
         }
 
-        return BandDatas[band - 1].at<uchar>(row, col);
+        return BGRData.at<cv::Vec3b>(row, col)[band - 1];
     }
 
     void SetPixelValue(int row, int col, int band, uchar value) {
@@ -56,7 +53,11 @@ class ImageData {
             throw std::runtime_error("Pixel position or Band out of range.");
         }
 
-        BandDatas[band - 1].at<uchar>(row, col) = value;
+        if (band <= 3) {
+            BGRData.at<cv::Vec3b>(row, col)[band - 1] = value;
+        } else {
+            ExtraBandDatas[band - 4].at<uchar>(row, col) = value;
+        }
     }
 
     cv::Vec3b GetPixelValue(int row, int col) {
@@ -65,7 +66,7 @@ class ImageData {
             throw std::runtime_error("Pixel position or Band out of range.");
         }
 
-        return GetMergedData().at<cv::Vec3b>(row, col);
+        return BGRData.at<cv::Vec3b>(row, col);
     }
 
     void SetPixelValue(int row, int col, cv::Vec3b value) {
@@ -74,12 +75,7 @@ class ImageData {
             throw std::runtime_error("Pixel position or Band out of range.");
         }
 
-        _MergedData.at<cv::Vec3b>(row, col) = value;
-
-        for (size_t b = 0; b < GetBandCounts(); ++b) {
-            BandDatas[b].at<uchar>(row, col) =
-                _MergedData.at<cv::Vec3b>(row, col)[b];
-        }
+        BGRData.at<cv::Vec3b>(row, col) = value;
     }
 
     // (0, 0) at top-left corner
@@ -98,23 +94,21 @@ class ImageData {
                positionY * GeoTransform[5];
     }
 
-    int GetImageType(int band = 1) const {
-        if (BandDatas.empty())
+    int GetImageType() const {
+        if (BGRData.empty())
             return -1;
-        return BandDatas[band].type();
+        return BGRData.type();
     }
 
   private:
     bool _IsOutOfBounds(size_t row, size_t col) const {
-        if (BandDatas.empty()) {
+        if (BGRData.empty()) {
             Error("Image data is empty.");
             return true;
         }
 
-        return row >= static_cast<size_t>(BandDatas[0].rows) ||
-               col >= static_cast<size_t>(BandDatas[0].cols);
+        return row >= Height() || col >= Width();
     }
-    cv::Mat _MergedData;
 };
 
 } // namespace RSPIP

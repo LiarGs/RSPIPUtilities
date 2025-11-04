@@ -7,8 +7,8 @@ inline void PrintImageInfo(const std::shared_ptr<ImageData> &image) {
     if (!image) {
         throw std::runtime_error("Image pointer is null.");
     }
-    Info("Image Name: {} Dimensions: {} x {}, DataType: {}", image->ImageName,
-         image->Width(), image->Height(), image->GetMergedData().type());
+    Info("Image Name: {} Dimensions: {} x {}", image->ImageName, image->Width(),
+         image->Height());
     Info("Number of Bands: {}", image->GetBandCounts());
     // GeoInfo
     if (!image->Projection.empty()) {
@@ -33,7 +33,7 @@ inline void ShowImage(const std::shared_ptr<ImageData> &image, size_t band) {
                                  std::to_string(band));
     }
 
-    auto displayImg = image->BandDatas[band - 1];
+    const auto &displayImg = image->BGRData;
 
     if (displayImg.empty()) {
         throw std::runtime_error("Image band " + std::to_string(band) +
@@ -48,12 +48,12 @@ inline void ShowImage(const std::shared_ptr<ImageData> &image, size_t band) {
 }
 
 inline void ShowImage(const std::shared_ptr<ImageData> &image) {
-    if (!image) {
+    if (!image->BGRData.data) {
         throw std::runtime_error("Image pointer is null.");
     }
 
     cv::namedWindow(image->ImageName, cv::WINDOW_NORMAL);
-    cv::imshow(image->ImageName, image->GetMergedData());
+    cv::imshow(image->ImageName, image->BGRData);
     PrintImageInfo(image);
 
     cv::waitKey(0);
