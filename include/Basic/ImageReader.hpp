@@ -1,19 +1,18 @@
 ﻿#pragma once
-#include "ImageData.hpp"
+#include "GeoImage.hpp"
 #include "Util/General.hpp"
 
 namespace RSPIP {
 
 // Single unified API for all image formats
-inline std::shared_ptr<ImageData> GeoImageRead(const std::string &imagePath) {
+inline std::shared_ptr<GeoImage> GeoImageRead(const std::string &imagePath) {
     GDALAllRegister();
     GDALDataset *dataset =
         static_cast<GDALDataset *>(GDALOpen(imagePath.c_str(), GA_ReadOnly));
     if (!dataset)
         throw std::runtime_error("Failed to open TIFF file: " + imagePath);
 
-    auto img = std::make_shared<ImageData>();
-    img->dataset = dataset;
+    auto img = std::make_shared<GeoImage>();
     img->ImageName = imagePath;
     auto imgWidth = dataset->GetRasterXSize();
     auto imgHeight = dataset->GetRasterYSize();
@@ -60,7 +59,7 @@ inline std::shared_ptr<ImageData> GeoImageRead(const std::string &imagePath) {
         std::vector<cv::Mat> rgbBands(allBands.begin(),
                                       allBands.begin() + rgbBandCount);
         reverse(rgbBands.begin(), rgbBands.end()); // BGR顺序
-        cv::merge(rgbBands, img->BGRData);
+        cv::merge(rgbBands, img->ImageData);
 
         // 剩余的波段作为额外数据
         if (allBands.size() > 3) {
@@ -76,21 +75,18 @@ inline std::shared_ptr<ImageData> GeoImageRead(const std::string &imagePath) {
     return img;
 }
 
-inline std::shared_ptr<ImageData>
-NormalImageRead(const std::string &imagePath) {
+inline std::shared_ptr<Image> NormalImageRead(const std::string &imagePath) {
     cv::Mat img = cv::imread(imagePath, cv::IMREAD_UNCHANGED);
     if (img.empty())
         throw std::runtime_error("Failed to read image: " + imagePath);
 
-    auto imageData = std::make_shared<ImageData>();
-    imageData->dataset = nullptr;
-    imageData->BGRData = img;
+    auto imageData = std::make_shared<Image>();
+    imageData->ImageData = img;
     imageData->ImageName = imagePath;
-    imageData->NonData = cv::Vec3b(0, 0, 0);
     return imageData;
 }
 
-inline std::shared_ptr<ImageData> ImageRead(const std::string &imagePath) {
+inline std::shared_ptr<Image> ImageRead(const std::string &imagePath) {
 
     if (Util::IsGeoImage(imagePath)) {
         return GeoImageRead(imagePath);

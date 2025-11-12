@@ -11,6 +11,11 @@ inline bool IsGeoImage(const std::string &imagePath) {
     return (ext == ".tif" || ext == ".tiff");
 }
 
+inline std::shared_ptr<GeoImage>
+IsGeoImage(const std::shared_ptr<Image> &image) {
+    return std::dynamic_pointer_cast<GeoImage>(image);
+}
+
 inline GDALDataType CVTypeToGDALType(int cvType) {
     switch (cvType) {
     case CV_8UC1:

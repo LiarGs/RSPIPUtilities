@@ -7,9 +7,7 @@
 #include <string>
 
 namespace SuperDebug {
-// ─────────────────────────────────────────────
-//  Color codes (ANSI)
-// ─────────────────────────────────────────────
+
 namespace Color {
 constexpr const char *RESET = "\033[0m";
 constexpr const char *RED = "\033[31m";
@@ -19,9 +17,6 @@ constexpr const char *CYAN = "\033[36m";
 constexpr const char *WHITE = "\033[37m";
 } // namespace Color
 
-// ─────────────────────────────────────────────
-//  Utility: get timestamp [YYYY-MM-DD HH:MM:SS.mmm]
-// ─────────────────────────────────────────────
 inline std::string current_time_string() {
     using namespace std::chrono;
     auto now = system_clock::now();
@@ -41,9 +36,6 @@ inline std::string current_time_string() {
     return oss.str();
 }
 
-// ─────────────────────────────────────────────
-//  Core logging template
-// ─────────────────────────────────────────────
 enum class Level { Info, Warn, Error };
 
 template <typename... Args>
@@ -73,9 +65,6 @@ inline void log(Level level, std::string_view fmt, Args &&...args) {
               << std::endl;
 }
 
-// ─────────────────────────────────────────────
-//  Convenience wrappers
-// ─────────────────────────────────────────────
 template <typename... Args>
 inline void Info(std::string_view fmt, Args &&...args) {
     log(Level::Info, fmt, std::forward<Args>(args)...);

@@ -1,34 +1,38 @@
-﻿#include "ImageData.hpp"
+﻿#pragma once
+
+#include "Basic/GeoImage.hpp"
 #include <vector>
 
-namespace RSPIP {
+namespace RSPIP::MosaicAlgorithm {
+
 struct ImageBounds {
     double minLongtitude, maxLongtitude, minLatitude, maxLatitude;
 };
+
 class IMosaicAlgorithm {
   public:
     virtual ~IMosaicAlgorithm() = default;
 
     virtual void
-    MosaicImages(const std::vector<std::shared_ptr<ImageData>> &ImageDatas) = 0;
+    MosaicImages(std::vector<std::shared_ptr<GeoImage>> &ImageDatas) = 0;
 
-    std::shared_ptr<ImageData> MosaicResult;
+    std::shared_ptr<GeoImage> MosaicResult;
 
   protected:
     void _InitMosaicParameters(
-        const std::vector<std::shared_ptr<ImageData>> &ImageDatas) {
+        const std::vector<std::shared_ptr<GeoImage>> &ImageDatas) {
         _GetGeoBounds(ImageDatas);
         _GetPixelSize(ImageDatas);
         _GetDimiensions(ImageDatas);
     }
 
     ImageBounds _GeoBounds;
-    double _PixelSizeX, _PixelSizeY;
+    double _InversePixelSizeX, _InversePixelSizeY;
     int _MosaicRows, _MosaicCols;
 
   private:
     void
-    _GetGeoBounds(const std::vector<std::shared_ptr<ImageData>> &ImageDatas) {
+    _GetGeoBounds(const std::vector<std::shared_ptr<GeoImage>> &ImageDatas) {
         _GeoBounds.minLongtitude = _GeoBounds.minLatitude =
             std::numeric_limits<double>::max();
         _GeoBounds.maxLongtitude = _GeoBounds.maxLatitude =
@@ -62,27 +66,26 @@ class IMosaicAlgorithm {
     }
 
     void
-    _GetPixelSize(const std::vector<std::shared_ptr<ImageData>> &ImageDatas) {
+    _GetPixelSize(const std::vector<std::shared_ptr<GeoImage>> &ImageDatas) {
         if (ImageDatas.empty()) {
             throw std::runtime_error("No images provided for pixel size.");
         }
         const auto &gt = ImageDatas[0]->GeoTransform;
-        _PixelSizeX = gt[1];
-        _PixelSizeY = std::abs(gt[5]);
+        _InversePixelSizeX = 1 / gt[1];
+        _InversePixelSizeY = 1 / std::abs(gt[5]);
     }
 
     void
-    _GetDimiensions(const std::vector<std::shared_ptr<ImageData>> &ImageDatas) {
-        _MosaicCols = static_cast<int>(
-            (_GeoBounds.maxLongtitude - _GeoBounds.minLongtitude) /
-            _PixelSizeX);
-        _MosaicRows = static_cast<int>(
-            (_GeoBounds.maxLatitude - _GeoBounds.minLatitude) / _PixelSizeY);
+    _GetDimiensions(const std::vector<std::shared_ptr<GeoImage>> &ImageDatas) {
+        _MosaicCols = (_GeoBounds.maxLongtitude - _GeoBounds.minLongtitude) *
+                      _InversePixelSizeX;
+        _MosaicRows = (_GeoBounds.maxLatitude - _GeoBounds.minLatitude) *
+                      _InversePixelSizeY;
 
-        MosaicResult = std::make_shared<ImageData>();
-        MosaicResult->BGRData = cv::Mat(_MosaicRows + 1, _MosaicCols + 1,
-                                        CV_8UC3, cv::Scalar(0, 0, 0));
+        MosaicResult = std::make_shared<GeoImage>();
+        MosaicResult->ImageData = cv::Mat(_MosaicRows + 1, _MosaicCols + 1,
+                                          CV_8UC3, MosaicResult->NonData);
     }
 };
 
-} // namespace RSPIP
+} // namespace RSPIP::MosaicAlgorithm

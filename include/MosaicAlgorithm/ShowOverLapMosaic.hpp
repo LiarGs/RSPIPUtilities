@@ -1,12 +1,12 @@
-﻿#include "IMosaicAlgorithm.h"
-#include <SuperDebug.hpp>
-#include <Writer/ImageWriter.hpp>
+﻿#pragma once
+#include "Basic/GeoImage.hpp"
+#include "IMosaicAlgorithm.h"
 
-namespace RSPIP {
-class SimpleMosaic : public IMosaicAlgorithm {
+namespace RSPIP::MosaicAlgorithm {
+class ShowOverLapMosaic : public IMosaicAlgorithm {
   public:
-    void MosaicImages(
-        const std::vector<std::shared_ptr<ImageData>> &ImageDatas) override {
+    void
+    MosaicImages(std::vector<std::shared_ptr<GeoImage>> &ImageDatas) override {
         _InitMosaicParameters(ImageDatas);
         Info("Mosaic Image Size: {} x {}", _MosaicCols, _MosaicRows);
 
@@ -14,11 +14,11 @@ class SimpleMosaic : public IMosaicAlgorithm {
             _PasteImageToMosaic(imgData);
         }
 
-        RSPIP::SaveImage(MosaicResult, MosaicResult->ImageName);
+        Info("Mosaic Completed.");
     }
 
   private:
-    void _PasteImageToMosaic(const std::shared_ptr<ImageData> &imgData) {
+    void _PasteImageToMosaic(const std::shared_ptr<GeoImage> &imgData) {
         const auto &gt = imgData->GeoTransform;
         int width = imgData->Width();
         int height = imgData->Height();
@@ -37,10 +37,10 @@ class SimpleMosaic : public IMosaicAlgorithm {
                 double lon = gt[0] + col * gt[1] + row * gt[2];
                 double lat = gt[3] + col * gt[4] + row * gt[5];
 
-                int mosaicX = static_cast<int>(
-                    (lon - _GeoBounds.minLongtitude) / _PixelSizeX);
-                int mosaicY = static_cast<int>((lat - _GeoBounds.minLatitude) /
-                                               _PixelSizeY);
+                auto mosaicX = static_cast<int>(std::lround(
+                    (lon - _GeoBounds.minLongtitude) * _InversePixelSizeX));
+                auto mosaicY = static_cast<int>(std::lround(
+                    (lat - _GeoBounds.minLatitude) * _InversePixelSizeY));
 
                 if (mosaicX < 0 || mosaicX >= _MosaicCols || mosaicY < 0 ||
                     mosaicY >= _MosaicRows) {
@@ -49,7 +49,14 @@ class SimpleMosaic : public IMosaicAlgorithm {
                               << std::endl;
                     continue;
                 }
-                MosaicResult->SetPixelValue(mosaicY, mosaicX, pixelValue);
+                if (MosaicResult->GetPixelValue(mosaicY, mosaicX) !=
+                    MosaicResult->NonData) {
+                    MosaicResult->SetPixelValue(mosaicY, mosaicX,
+                                                cv::Vec3b(0, 0, 255));
+
+                } else {
+                    MosaicResult->SetPixelValue(mosaicY, mosaicX, pixelValue);
+                }
             }
 
             std::cout << "\rPasting Image: "
@@ -58,4 +65,4 @@ class SimpleMosaic : public IMosaicAlgorithm {
         }
     }
 };
-} // namespace RSPIP
+} // namespace RSPIP::MosaicAlgorithm
