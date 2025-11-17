@@ -8,14 +8,17 @@ find_package(OpenCV REQUIRED)
 include_directories(${OpenCV_INCLUDE_DIRS} include)
 include_directories("D:/C++_Library/GDAL/Release/include")
 
-file(GLOB SOURCES "src/*.cpp")
-file(GLOB_RECURSE SOURCES_RECURSIVE "src/**/*.cpp")
+# 显式列出源文件，避免GLOB的潜在问题
+set(SOURCES 
+    src/main.cpp
+    # 添加其他源文件
+)
 
-if(NOT SOURCES AND NOT SOURCES_RECURSIVE)
-    message(FATAL_ERROR "No source files found in src directory!")
+if(NOT SOURCES)
+    message(FATAL_ERROR "No source files specified!")
 endif()
 
-message(STATUS "Found sources: ${SOURCES} ${SOURCES_RECURSIVE}")
+message(STATUS "Using sources: ${SOURCES}")
 
 # Enable Link Time Code Generation (LTCG) for MSVC builds
 if (MSVC)

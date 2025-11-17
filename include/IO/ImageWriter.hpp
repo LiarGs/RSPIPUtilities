@@ -1,17 +1,17 @@
 ﻿#pragma once
 #include "Basic/GeoImage.hpp"
 #include "Util/General.hpp"
-#include <filesystem>
 
 namespace RSPIP {
 
-bool SaveGeoImage(const std::shared_ptr<GeoImage> &geoImage,
-                  const std::string &imagePath, const std::string &imageName) {
+bool SaveGeoImage(const std::shared_ptr<GeoImage> &geoImage, const std::string &imagePath, const std::string &imageName) {
+
     auto savePath = imagePath + imageName;
     GDALAllRegister();
     const char *format = "GTiff";
     GDALDriver *driver = GetGDALDriverManager()->GetDriverByName(format);
     if (!driver) {
+        Error("GTiff driver not available.");
         throw std::runtime_error("GTiff driver not available.");
     }
 
@@ -19,10 +19,10 @@ bool SaveGeoImage(const std::shared_ptr<GeoImage> &geoImage,
     int imgHeight = geoImage->Height();
     int imgBands = geoImage->GetBandCounts();
 
-    GDALDataset *dataset = driver->Create(
-        savePath.c_str(), imgWidth, imgHeight, imgBands,
-        Util::CVTypeToGDALType(geoImage->GetImageType()), nullptr);
+    GDALDataset *dataset =
+        driver->Create(savePath.c_str(), imgWidth, imgHeight, imgBands, Util::CVTypeToGDALType(geoImage->GetImageType()), nullptr);
     if (!dataset) {
+        Error("Failed to create TIFF file: {}", savePath);
         throw std::runtime_error("Failed to create TIFF file: " + savePath);
     }
 
@@ -64,12 +64,12 @@ bool SaveGeoImage(const std::shared_ptr<GeoImage> &geoImage,
     return true;
 }
 
-inline bool SaveNonGeoImage(const std::shared_ptr<Image> &image,
-                            const std::string &imagePath,
-                            const std::string &imageName) {
+bool SaveNonGeoImage(const std::shared_ptr<Image> &image, const std::string &imagePath, const std::string &imageName) {
+
     const cv::Mat &mergedImg = image->ImageData;
     bool success = cv::imwrite(imagePath + imageName, mergedImg);
     if (!success) {
+        Error("Failed to write image: {}", imagePath);
         throw std::runtime_error("Failed to write image: " + imagePath);
     } else {
         Info("Image saved successfully: {}", imagePath);
@@ -77,9 +77,8 @@ inline bool SaveNonGeoImage(const std::shared_ptr<Image> &image,
     return success;
 }
 
-inline bool SaveImage(const std::shared_ptr<Image> &image,
-                      const std::string &imagePath,
-                      const std::string &imageName) {
+bool SaveImage(const std::shared_ptr<Image> &image, const std::string &imagePath, const std::string &imageName) {
+
     if (auto geoImage = Util::IsGeoImage(image)) {
         return SaveGeoImage(geoImage, imagePath, imageName);
     } else {

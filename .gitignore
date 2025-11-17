@@ -43,6 +43,7 @@
 
 # IDE files
 .vscode/
+.codebuddy/
 
 # Build directories
 build/

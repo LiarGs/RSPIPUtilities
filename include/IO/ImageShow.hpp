@@ -5,18 +5,19 @@ namespace RSPIP {
 
 inline void ShowImage(const std::shared_ptr<Image> &image, size_t band) {
     if (!image) {
+        Error("Image pointer is null.");
         throw std::runtime_error("Image pointer is null.");
     }
     if (band < 1 || band > static_cast<size_t>(image->GetBandCounts())) {
-        throw std::runtime_error("Invalid band number: " +
-                                 std::to_string(band));
+        Error("Invalid band number: {}", band);
+        throw std::runtime_error("Invalid band number: " + std::to_string(band));
     }
 
     const auto &displayImg = image->ImageData;
 
     if (displayImg.empty()) {
-        throw std::runtime_error("Image band " + std::to_string(band) +
-                                 " is empty.");
+        Error("Image band {} is empty", band);
+        throw std::runtime_error("Image band " + std::to_string(band) + " is empty.");
     }
 
     auto windowName = image->ImageName + " Band " + std::to_string(band);
@@ -28,6 +29,7 @@ inline void ShowImage(const std::shared_ptr<Image> &image, size_t band) {
 
 inline void ShowImage(const std::shared_ptr<Image> &image) {
     if (!image->ImageData.data) {
+        Error("Image pointer is null.");
         throw std::runtime_error("Image pointer is null.");
     }
 
@@ -36,7 +38,6 @@ inline void ShowImage(const std::shared_ptr<Image> &image) {
     image->PrintImageInfo();
 
     cv::waitKey(0);
-    cv::destroyWindow(image->ImageName);
 }
 
 } // namespace RSPIP

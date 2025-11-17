@@ -4,61 +4,63 @@
 
 using namespace std;
 using namespace RSPIP;
+using namespace Algorithm;
 
-int main() {
-    auto exampleImagePath =
-        "E:/RSPIP/GuoShuai/Resource/DataWithSimuClouds/TifData/";
-    auto geoImageName1 = "GF1B_PMS_E112.7_N23.0_20191207_L1A1227736448.tif";
-    auto geoImageName2 = "GF1B_PMS_E112.7_N23.5_20191124_L1A1227730142.tif";
-    auto geoImageName3 = "GF1B_PMS_E112.8_N23.5_20191207_L1A1227736458.tif";
-    auto geoImageName4 = "GF1C_PMS_E112.8_N23.0_20191208_L1A1021514557.tif";
+auto TestImagePath = "E:/RSPIP/GuoShuai/Resource/DataWithSimuClouds/TifData/";
+auto TestMaskImagePath = "E:/RSPIP/GuoShuai/Resource/DataWithSimuClouds/MaskDatas/";
+auto GeoSaveImagePath = "E:/RSPIP/GuoShuai/Resource/Temp/";
+auto GeoSaveImageName = "OutputImage.tif";
 
+static void _TestForNormalImage() {
+    // Test Normal Image Read/Show/Save
     auto normalImageName = "C:/Users/RSPIP/Pictures/Camera Roll/tempTest.png";
-
-    auto imageNames = vector<string>{
-        geoImageName1,
-        geoImageName2,
-        geoImageName3,
-        geoImageName4,
-    };
-
-    auto geoSaveImagePath = "E:/RSPIP/GuoShuai/Resource/Temp/";
-    auto geoSaveImageName = "OutputImage.tif";
     auto normalSaveImagePath = "E:/RSPIP/GuoShuai/Resource/Temp/";
     auto normalSaveImageName = "NormalImageOutput.png";
-    try {
+    auto normalImage = RSPIP::ImageRead(normalImageName);
+    RSPIP::ShowImage(normalImage);
+    RSPIP::SaveImage(normalImage, normalSaveImagePath,
+                     normalSaveImageName);
+}
 
-        // Test Normal Image Read/Show/Save
+static void _TestForGeoImageMosaic(const auto &imageNames, const auto &cloudMaskNames) {
+    std::vector<shared_ptr<RSPIP::GeoImage>> imageDatas = {};
+    std::vector<shared_ptr<RSPIP::CloudMask>> cloudMasks = {};
 
-        // auto normalImage = RSPIP::ImageRead(normalImageName);
-        // RSPIP::ShowImage(normalImage);
-        // RSPIP::SaveImage(normalImage, normalSaveImagePath,
-        // normalSaveImageName);
+    for (const auto &geoImagePath : imageNames) {
+        auto geoImage = std::dynamic_pointer_cast<GeoImage>(RSPIP::ImageRead(geoImagePath));
 
-        // Test GeoImage Read/Show/Save
-
-        std::vector<shared_ptr<RSPIP::GeoImage>> imageDatas = {};
-        for (const auto &imgName : imageNames) {
-            auto imgPath = exampleImagePath + imgName;
-
-            auto geoImage =
-                std::dynamic_pointer_cast<GeoImage>(RSPIP::ImageRead(imgPath));
-
-            // RSPIP::ShowImage(geoImage);
-            imageDatas.push_back(geoImage);
-        }
-        std::unique_ptr<MosaicAlgorithm::IMosaicAlgorithm> mosaicUtil;
-
-        mosaicUtil = std::make_unique<MosaicAlgorithm::DynmiacPatchMosaic>();
-        // mosaicUtil = std::make_unique<MosaicAlgorithm::SimpleMosaic>();
-
-        mosaicUtil->MosaicImages(imageDatas);
-        RSPIP::SaveImage(mosaicUtil->MosaicResult, geoSaveImagePath,
-                         geoSaveImageName);
-
-    } catch (const std::exception &e) {
-        std::cerr << e.what() << std::endl;
-        return 1;
+        // RSPIP::ShowImage(geoImage);
+        imageDatas.push_back(geoImage);
     }
+
+    for (const auto &cloudMaskPath : cloudMaskNames) {
+        auto cloudMaskImage = std::dynamic_pointer_cast<CloudMask>(RSPIP::ImageRead(cloudMaskPath, Util::ImageType::CloudMask));
+
+        // RSPIP::ShowImage(cloudMaskImage);
+        cloudMasks.push_back(cloudMaskImage);
+    }
+
+    std::unique_ptr<MosaicAlgorithm::MosaicAlgorithmBase> mosaicAlgorithm;
+    std::shared_ptr<AlgorithmParamBase> algorithmParams;
+
+    // mosaicAlgorithm = std::make_unique<MosaicAlgorithm::SimpleMosaic>();
+    // mosaicAlgorithm = std::make_unique<MosaicAlgorithm::ShowOverLapMosaic>();
+    mosaicAlgorithm = std::make_unique<MosaicAlgorithm::DynamicPatchMosaic>();
+
+    // algorithmParams = std::make_shared<MosaicAlgorithm::BasicMosaicParam>(imageDatas);
+    algorithmParams = std::make_shared<MosaicAlgorithm::DynamicPatchMosaicParams>(imageDatas, cloudMasks);
+
+    mosaicAlgorithm->Execute(algorithmParams);
+    RSPIP::SaveImage(mosaicAlgorithm->MosaicResult, GeoSaveImagePath, GeoSaveImageName);
+}
+
+int main(int argc, char *argv[]) {
+
+    auto geoImagePaths = Util::GetTifImagePathFromPath(TestImagePath);
+
+    auto cloudMaskPaths = Util::GetTifImagePathFromPath(TestMaskImagePath);
+
+    _TestForGeoImageMosaic(geoImagePaths, cloudMaskPaths);
+
     return 0;
 }

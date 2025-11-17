@@ -1,11 +1,13 @@
 ﻿#pragma once
-#include "Basic/GeoImage.hpp"
+#include "Interface/IGeoTransformer.hpp"
+
 namespace RSPIP::Util {
 
-void SortImagesByLongitude(std::vector<std::shared_ptr<GeoImage>> &ImageDatas) {
+template <typename T>
+void SortImagesByLongitude(std::vector<std::shared_ptr<T>> &ImageDatas) {
+    static_assert(std::is_base_of_v<IGeoTransformer, T>);
     std::sort(ImageDatas.begin(), ImageDatas.end(),
-              [](const std::shared_ptr<GeoImage> &a,
-                 const std::shared_ptr<GeoImage> &b) {
+              [](const std::shared_ptr<T> &a, const std::shared_ptr<T> &b) {
                   return a->GetLongitude(0, 0) < b->GetLongitude(0, 0);
               });
 }

@@ -1,9 +1,21 @@
 ﻿#pragma once
+#include "Basic/CloudMask.hpp"
 #include "SuperDebug.hpp"
 #include "gdal_priv.h"
 #include <filesystem>
 
 namespace RSPIP::Util {
+
+enum class ImageType {
+    NormalImage,
+    GeoImage,
+    MaskImage,
+    CloudMask
+};
+
+double BGRToGray(const cv::Vec3b &pixelValue) {
+    return 0.299 * pixelValue[2] + 0, 587 * pixelValue[1] + 0.114 * pixelValue[0];
+}
 
 inline bool IsGeoImage(const std::string &imagePath) {
     auto ext = std::filesystem::path(imagePath).extension().string();
@@ -11,9 +23,20 @@ inline bool IsGeoImage(const std::string &imagePath) {
     return (ext == ".tif" || ext == ".tiff");
 }
 
-inline std::shared_ptr<GeoImage>
-IsGeoImage(const std::shared_ptr<Image> &image) {
+inline std::shared_ptr<GeoImage> IsGeoImage(const std::shared_ptr<Image> &image) {
     return std::dynamic_pointer_cast<GeoImage>(image);
+}
+
+void MatchMaskWithSource(std::vector<std::shared_ptr<CloudMask>> &cloudMasks, const std::vector<std::shared_ptr<GeoImage>> &imageDatas) {
+    //  TODO: 此处还可以做一些根据名字或者其他来做匹配的逻辑
+    if (imageDatas.size() != cloudMasks.size()) {
+        Error("Size not match between imageData and cloudMasks!");
+        return;
+    }
+
+    for (int index = 0; index < imageDatas.size(); ++index) {
+        cloudMasks[index]->SetSourceImage(imageDatas[index]);
+    }
 }
 
 inline GDALDataType CVTypeToGDALType(int cvType) {
@@ -79,6 +102,20 @@ inline int GDALTypeToCVType(GDALDataType gdalType, int channels = 1) {
         Error("Unknown GDAL data type: {}", GDALGetDataTypeName(gdalType));
         return CV_8UC(channels);
     }
+}
+
+std::vector<std::string> GetTifImagePathFromPath(const std::string &path) {
+    std::vector<std::string> imagePaths;
+    for (const auto &entry : std::filesystem::directory_iterator(path)) {
+        if (!entry.is_regular_file()) {
+            continue;
+        }
+        auto filePath = entry.path().string();
+        if (Util::IsGeoImage(filePath)) {
+            imagePaths.push_back(filePath);
+        }
+    }
+    return imagePaths;
 }
 
 } // namespace RSPIP::Util

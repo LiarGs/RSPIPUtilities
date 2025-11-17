@@ -36,7 +36,9 @@ inline std::string current_time_string() {
     return oss.str();
 }
 
-enum class Level { Info, Warn, Error };
+enum class Level { Info,
+                   Warn,
+                   Error };
 
 template <typename... Args>
 inline void log(Level level, std::string_view fmt, Args &&...args) {

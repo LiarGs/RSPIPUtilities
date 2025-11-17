@@ -1,7 +1,7 @@
 ﻿#pragma once
-#include <Basic/ImageReader.hpp>
-#include <Basic/ImageShow.hpp>
-#include <Basic/ImageWriter.hpp>
-#include <MosaicAlgorithm/DynmiacPatchMosaic.hpp>
-#include <MosaicAlgorithm/ShowOverLapMosaic.hpp>
-#include <MosaicAlgorithm/SimpleMosaic.hpp>
+#include <Algorithm/MosaicAlgorithm/DynamicPatchMosaic.hpp>
+#include <Algorithm/MosaicAlgorithm/ShowOverLapMosaic.hpp>
+#include <Algorithm/MosaicAlgorithm/SimpleMosaic.hpp>
+#include <IO/ImageReader.hpp>
+#include <IO/ImageShow.hpp>
+#include <IO/ImageWriter.hpp>

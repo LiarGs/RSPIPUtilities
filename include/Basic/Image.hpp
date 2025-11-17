@@ -6,49 +6,50 @@ namespace RSPIP {
 class Image {
   public:
     Image() : ImageData(), ImageName("Default.png") {}
-    int Height() const { return static_cast<int>(ImageData.rows); }
-    int Width() const { return static_cast<int>(ImageData.cols); }
+    Image(const cv::Mat &imageData) : ImageData(imageData), ImageName("Default.png") {}
+    Image(const cv::Mat &imageData, const std::string &imageName) : ImageData(imageData), ImageName(imageName) {}
+
+    int Height() const { return ImageData.rows; }
+    int Width() const { return ImageData.cols; }
 
     virtual int GetBandCounts() const { return ImageData.channels(); }
 
-    virtual cv::Vec3b GetPixelValue(int row, int col) {
+    template <typename T>
+    T GetPixelValue(size_t row, size_t col) {
         if (_IsOutOfBounds(row, col)) {
-            Error("Pixel position out of range: ({}, {})", row, col);
-            throw std::runtime_error("Pixel position or Band out of range.");
+            Error("Pixel position out of range: ({}, {}) when GetPixelValue", row, col);
         }
 
-        return ImageData.at<cv::Vec3b>(row, col);
+        return ImageData.at<T>(row, col);
     }
 
-    virtual uchar GetPixelValue(int row, int col, int band) const {
+    virtual uchar GetPixelValue(size_t row, size_t col, int band) const {
         if (band >= GetBandCounts()) {
-            Error("Band index out of range: {}", band);
-            throw std::runtime_error("Band index out of range: " +
-                                     std::to_string(band));
+            Error("Band index out of range: {} (valid range: 0-{})", band, GetBandCounts() - 1);
+            throw std::out_of_range("Band index out of range");
         }
 
         if (_IsOutOfBounds(row, col)) {
             Error("Pixel position out of range: ({}, {})", row, col);
-            throw std::runtime_error("Pixel position or Band out of range.");
+            throw std::out_of_range("Pixel position or Band out of range.");
         }
 
         return ImageData.at<cv::Vec3b>(row, col)[band - 1];
     }
 
-    virtual void SetPixelValue(int row, int col, cv::Vec3b value) {
+    template <typename T>
+    void SetPixelValue(int row, int col, T value) {
         if (_IsOutOfBounds(row, col)) {
-            Error("Pixel position out of range: ({}, {})", row, col);
-            throw std::runtime_error("Pixel position or Band out of range.");
+            Error("Pixel position out of range: ({}, {}) when SetPixelValue", row, col);
         }
 
-        ImageData.at<cv::Vec3b>(row, col) = value;
+        ImageData.at<T>(row, col) = value;
     }
 
     virtual void SetPixelValue(int row, int col, int band, uchar value) {
         if (band >= GetBandCounts()) {
-            Error("Band index out of range: {}", band);
-            throw std::runtime_error("Band index out of range: " +
-                                     std::to_string(band));
+            Error("Band index out of range: {} (valid range: 0-{})", band, GetBandCounts() - 1);
+            throw std::out_of_range("Band index out of range");
         }
 
         if (_IsOutOfBounds(row, col)) {
@@ -66,18 +67,17 @@ class Image {
     }
 
     virtual void PrintImageInfo() {
-        Info("Image Name: {} Dimensions: {} x {}", ImageName, Width(),
-             Height());
+        Info("Image Name: {} Dimensions: Rows: {} x Cols: {}", ImageName, Height(), Width());
         Info("Number of Bands: {}", GetBandCounts());
     }
 
   protected:
     bool _IsOutOfBounds(size_t row, size_t col) const {
         if (ImageData.empty()) {
-            Error("Image data is empty.");
+            Error("ImageData is empty.");
+            throw std::runtime_error("ImageData is empty.");
             return true;
         }
-
         return row >= Height() || col >= Width();
     }
 
