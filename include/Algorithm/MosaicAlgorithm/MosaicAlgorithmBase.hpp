@@ -31,8 +31,9 @@ class MosaicAlgorithmBase : public IAlgorithm {
 
         Info("Pasting Image: {} Size: {} x {}", imageData->ImageName, rows, columns);
 
-        for (size_t row = 0; row < rows; ++row) {
-            for (size_t col = 0; col < columns; ++col) {
+#pragma omp parallel for
+        for (int row = 0; row < rows; ++row) {
+            for (int col = 0; col < columns; ++col) {
 
                 auto pixelValue = imageData->GetPixelValue<cv::Vec3b>(row, col);
                 if (pixelValue == imageData->NonData) {
@@ -48,10 +49,7 @@ class MosaicAlgorithmBase : public IAlgorithm {
 
                 MosaicResult->SetPixelValue(mosaicRow, mosaicColumn, pixelValue);
             }
-
-            std::cout << "\rPasting Image: " << static_cast<int>((row + 1) * 100.0 / rows) << "%" << std::flush;
         }
-        std::cout << std::endl;
     }
 
   private:

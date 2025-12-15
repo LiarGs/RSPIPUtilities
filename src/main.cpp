@@ -50,12 +50,15 @@ static void _TestForGeoImageMosaic(const auto &imageNames, const auto &cloudMask
     // algorithmParams = std::make_shared<MosaicAlgorithm::BasicMosaicParam>(imageDatas);
     algorithmParams = std::make_shared<MosaicAlgorithm::DynamicPatchMosaicParams>(imageDatas, cloudMasks);
 
+    // 统计算法运行时间
+    SuperDebug::ScopeTimer algorithmTimer("Algorithm Execution");
     mosaicAlgorithm->Execute(algorithmParams);
     RSPIP::SaveImage(mosaicAlgorithm->MosaicResult, GeoSaveImagePath, GeoSaveImageName);
 }
 
 int main(int argc, char *argv[]) {
 
+    SuperDebug::ScopeTimer mainTimer("Main Program");
     auto geoImagePaths = Util::GetTifImagePathFromPath(TestImagePath);
 
     auto cloudMaskPaths = Util::GetTifImagePathFromPath(TestMaskImagePath);
