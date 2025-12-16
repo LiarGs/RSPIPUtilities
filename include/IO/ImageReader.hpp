@@ -137,15 +137,4 @@ std::shared_ptr<Image> ImageRead(const std::string &imagePath, Util::ImageType i
     return nullptr;
 }
 
-std::shared_ptr<Image> ImageRead(const std::string &imagePath) {
-
-    if (Util::IsGeoImage(imagePath)) {
-        return ImageRead(imagePath, Util::ImageType::GeoImage);
-    } else {
-        return ImageRead(imagePath, Util::ImageType::NormalImage);
-    }
-
-    return nullptr;
-}
-
 } // namespace RSPIP

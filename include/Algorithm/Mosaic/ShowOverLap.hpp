@@ -5,7 +5,7 @@
 
 namespace RSPIP::Algorithm::MosaicAlgorithm {
 
-class ShowOverLapMosaic : public MosaicAlgorithmBase {
+class ShowOverLap : public MosaicAlgorithmBase {
   public:
     void Execute(std::shared_ptr<AlgorithmParamBase> params) override {
         if (auto basicMosaicParams = std::dynamic_pointer_cast<BasicMosaicParam>(params)) {
@@ -16,7 +16,7 @@ class ShowOverLapMosaic : public MosaicAlgorithmBase {
 
   private:
     void _MosaicImages(std::vector<std::shared_ptr<GeoImage>> &imageDatas) {
-        Info("Mosaic Image Size: {} x {}", MosaicResult->Height(), MosaicResult->Width());
+        Info("Mosaic Image Size: {} x {}", AlgorithmResult->Height(), AlgorithmResult->Width());
 
         for (const auto &imgData : imageDatas) {
             _PasteImageToMosaicResult(imgData);
@@ -25,7 +25,7 @@ class ShowOverLapMosaic : public MosaicAlgorithmBase {
         Info("Mosaic Completed.");
     }
 
-    void _PasteImageToMosaicResult(const std::shared_ptr<GeoImage> &imageData) override {
+    void _PasteImageToMosaicResult(const std::shared_ptr<const GeoImage> &imageData) override {
         int columns = imageData->Width();
         int rows = imageData->Height();
 
@@ -35,21 +35,21 @@ class ShowOverLapMosaic : public MosaicAlgorithmBase {
         for (int row = 0; row < rows; ++row) {
             for (int col = 0; col < columns; ++col) {
 
-                auto pixelValue = imageData->GetPixelValue<cv::Vec3b>(row, col);
+                const auto &pixelValue = imageData->GetPixelValue<cv::Vec3b>(row, col);
                 if (pixelValue == imageData->NonData) {
                     continue;
                 }
 
                 auto [latitude, longitude] = imageData->GetLatLon(row, col);
-                auto [mosaicRow, mosaicColumn] = MosaicResult->LatLonToRC(latitude, longitude);
+                auto [mosaicRow, mosaicColumn] = AlgorithmResult->LatLonToRC(latitude, longitude);
 
                 if (mosaicRow == -1 || mosaicColumn == -1) {
                     continue;
                 }
-                if (MosaicResult->GetPixelValue<cv::Vec3b>(mosaicRow, mosaicColumn) == MosaicResult->NonData) {
-                    MosaicResult->SetPixelValue(mosaicRow, mosaicColumn, pixelValue);
+                if (AlgorithmResult->GetPixelValue<cv::Vec3b>(mosaicRow, mosaicColumn) == AlgorithmResult->NonData) {
+                    AlgorithmResult->SetPixelValue(mosaicRow, mosaicColumn, pixelValue);
                 } else {
-                    MosaicResult->SetPixelValue(mosaicRow, mosaicColumn, Color::Red);
+                    AlgorithmResult->SetPixelValue(mosaicRow, mosaicColumn, Color::Red);
                 }
             }
         }

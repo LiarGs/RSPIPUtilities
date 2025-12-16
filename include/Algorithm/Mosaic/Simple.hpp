@@ -4,7 +4,7 @@
 
 namespace RSPIP::Algorithm::MosaicAlgorithm {
 
-class SimpleMosaic : public MosaicAlgorithmBase {
+class Simple : public MosaicAlgorithmBase {
   public:
     void Execute(std::shared_ptr<AlgorithmParamBase> params) override {
         if (auto basicMosaicParams = std::dynamic_pointer_cast<BasicMosaicParam>(params)) {
@@ -16,7 +16,7 @@ class SimpleMosaic : public MosaicAlgorithmBase {
   private:
     void _MosaicImages(std::vector<std::shared_ptr<GeoImage>> &imageDatas) {
 
-        Info("Mosaic Image Size: {} x {}", MosaicResult->Height(), MosaicResult->Width());
+        Info("Mosaic Image Size: {} x {}", AlgorithmResult->Height(), AlgorithmResult->Width());
 
         for (const auto &imgData : imageDatas) {
             _PasteImageToMosaicResult(imgData);

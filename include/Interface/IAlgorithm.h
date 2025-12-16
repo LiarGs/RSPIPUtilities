@@ -21,6 +21,9 @@ class IAlgorithm {
     IAlgorithm() = default;
     IAlgorithm(const IAlgorithm &) = default;
     IAlgorithm(IAlgorithm &&) = default;
+
+  public:
+    std::shared_ptr<GeoImage> AlgorithmResult;
 };
 
 } // namespace RSPIP::Algorithm

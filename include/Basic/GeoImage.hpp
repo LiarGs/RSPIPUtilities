@@ -11,9 +11,7 @@ class GeoImage : public Image, public IGeoTransformer {
   public:
     GeoImage() : Image(), ExtraBandDatas(), NonData(Color::Black) {}
 
-    int GetBandCounts() const override {
-        return static_cast<int>(ExtraBandDatas.size() + ImageData.channels());
-    }
+    int GetBandCounts() const override { return static_cast<int>(ExtraBandDatas.size() + ImageData.channels()); }
 
     using Image::SetPixelValue; // 避免隐藏掉另一个重载函数
     void SetPixelValue(int row, int col, int band, uchar value) override {
@@ -40,7 +38,7 @@ class GeoImage : public Image, public IGeoTransformer {
     }
 
   public:
-    std::vector<cv::Mat> ExtraBandDatas; // Extra band data=
+    std::vector<cv::Mat> ExtraBandDatas; // Extra band data
     cv::Vec3b NonData;
 };
 

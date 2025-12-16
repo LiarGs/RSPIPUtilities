@@ -11,20 +11,20 @@
 
 namespace RSPIP::Algorithm::MosaicAlgorithm {
 
-struct DynamicPatchMosaicParams : BasicMosaicParam {
+struct DynamicPatchParams : BasicMosaicParam {
 
   public:
-    DynamicPatchMosaicParams(const std::vector<std::shared_ptr<GeoImage>> &imageDatas, const std::vector<std::shared_ptr<CloudMask>> &cloudMasks)
+    DynamicPatchParams(const std::vector<std::shared_ptr<GeoImage>> &imageDatas, const std::vector<std::shared_ptr<CloudMask>> &cloudMasks)
         : BasicMosaicParam(imageDatas), CloudMasks(cloudMasks) {}
 
   public:
     std::vector<std::shared_ptr<CloudMask>> CloudMasks;
 };
 
-class DynamicPatchMosaic : public MosaicAlgorithmBase {
+class DynamicPatch : public MosaicAlgorithmBase {
   public:
     void Execute(std::shared_ptr<AlgorithmParamBase> params) override {
-        if (auto dynamicPatchMosaicParams = std::dynamic_pointer_cast<DynamicPatchMosaicParams>(params)) {
+        if (auto dynamicPatchMosaicParams = std::dynamic_pointer_cast<DynamicPatchParams>(params)) {
             _InitMosaicParameters(dynamicPatchMosaicParams);
             _ImageDatas = dynamicPatchMosaicParams->ImageDatas;
             _CloudMasks = dynamicPatchMosaicParams->CloudMasks;
@@ -39,7 +39,7 @@ class DynamicPatchMosaic : public MosaicAlgorithmBase {
 
   private:
     void _MosaicImages() {
-        Info("Mosaic Image Size: {} x {}", MosaicResult->Height(), MosaicResult->Width());
+        Info("Mosaic Image Size: {} x {}", AlgorithmResult->Height(), AlgorithmResult->Width());
         for (size_t currentImageIndex = 0; currentImageIndex < _ImageDatas.size(); ++currentImageIndex) {
             _CurrentProcessImageIndex = currentImageIndex;
             _PasteImageToMosaicResult(_ImageDatas[_CurrentProcessImageIndex]);
@@ -49,7 +49,7 @@ class DynamicPatchMosaic : public MosaicAlgorithmBase {
         Info("Mosaic Completed.");
     }
 
-    void _PasteImageToMosaicResult(const std::shared_ptr<GeoImage> &imageData) override {
+    void _PasteImageToMosaicResult(const std::shared_ptr<const GeoImage> &imageData) override {
         auto columns = imageData->Width();
         auto rows = imageData->Height();
 
@@ -59,22 +59,22 @@ class DynamicPatchMosaic : public MosaicAlgorithmBase {
         for (int row = 0; row < rows; ++row) {
             for (int col = 0; col < columns; ++col) {
 
-                auto pixelValue = imageData->GetPixelValue<cv::Vec3b>(row, col);
+                const auto &pixelValue = imageData->GetPixelValue<cv::Vec3b>(row, col);
                 if (pixelValue == imageData->NonData) {
                     continue;
                 }
 
                 auto [latitude, longitude] = imageData->GetLatLon(row, col);
-                auto [mosaicRow, mosaicColumn] = MosaicResult->LatLonToRC(latitude, longitude);
+                auto [mosaicRow, mosaicColumn] = AlgorithmResult->LatLonToRC(latitude, longitude);
                 if (mosaicRow == -1 || mosaicColumn == -1) {
                     continue;
                 }
 
-                if (MosaicResult->GetPixelValue<cv::Vec3b>(mosaicRow, mosaicColumn) != MosaicResult->NonData) {
+                if (AlgorithmResult->GetPixelValue<cv::Vec3b>(mosaicRow, mosaicColumn) != AlgorithmResult->NonData) {
                     continue;
                 }
 
-                MosaicResult->SetPixelValue(mosaicRow, mosaicColumn, pixelValue);
+                AlgorithmResult->SetPixelValue(mosaicRow, mosaicColumn, pixelValue);
             }
         }
     }
@@ -94,13 +94,13 @@ class DynamicPatchMosaic : public MosaicAlgorithmBase {
                 const auto &cloudPixel = rowCloudPixels[cloudPixelIndex];
 
                 auto [latitude, longitude] = std::pair{cloudPixel.Latitude, cloudPixel.Longitude};
-                auto [mosaicRow, mosaicColumn] = MosaicResult->LatLonToRC(latitude, longitude);
+                auto [mosaicRow, mosaicColumn] = AlgorithmResult->LatLonToRC(latitude, longitude);
 
                 if (mosaicRow == -1 || mosaicColumn == -1) {
                     continue;
                 }
 
-                if (MosaicResult->GetPixelValue<cv::Vec3b>(mosaicRow, mosaicColumn)[0] != cloudPixel.Value) {
+                if (AlgorithmResult->GetPixelValue<cv::Vec3b>(mosaicRow, mosaicColumn)[0] != cloudPixel.Value) {
                     // 此处云已被填充
                     continue;
                 }
@@ -112,8 +112,8 @@ class DynamicPatchMosaic : public MosaicAlgorithmBase {
                 }
 
                 for (const auto &pixel : bestPatch) {
-                    auto [mosaicResultPixelRow, mosaicResultPixelCol] = MosaicResult->LatLonToRC(pixel.Latitude, pixel.Longitude);
-                    MosaicResult->SetPixelValue(mosaicResultPixelRow, mosaicResultPixelCol, pixel.Value);
+                    auto [mosaicResultPixelRow, mosaicResultPixelCol] = AlgorithmResult->LatLonToRC(pixel.Latitude, pixel.Longitude);
+                    AlgorithmResult->SetPixelValue(mosaicResultPixelRow, mosaicResultPixelCol, pixel.Value);
                 }
             }
         }
@@ -153,8 +153,8 @@ class DynamicPatchMosaic : public MosaicAlgorithmBase {
 
                 otherImagePreviousLine.emplace_back(Util::BGRToGray(pixelValue));
 
-                auto [mosaicResultPixelRow, mosaicResultPixelCol] = MosaicResult->LatLonToRC(nextCloudPixel.Latitude, nextCloudPixel.Longitude);
-                mosaicResultPreviousLine.emplace_back(Util::BGRToGray(MosaicResult->GetPixelValue<cv::Vec3b>(mosaicResultPixelRow - 1, mosaicResultPixelCol)));
+                auto [mosaicResultPixelRow, mosaicResultPixelCol] = AlgorithmResult->LatLonToRC(nextCloudPixel.Latitude, nextCloudPixel.Longitude);
+                mosaicResultPreviousLine.emplace_back(Util::BGRToGray(AlgorithmResult->GetPixelValue<cv::Vec3b>(mosaicResultPixelRow - 1, mosaicResultPixelCol)));
 
                 auto patchPixel = GeoPixel<cv::Vec3b>(otherImage->GetPixelValue<cv::Vec3b>(otherImagePixelRow, otherImagePixelCol), otherImagePixelRow, otherImagePixelCol, nextCloudPixel.Latitude, nextCloudPixel.Longitude);
                 currentPatch.emplace_back(patchPixel);

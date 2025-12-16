@@ -15,7 +15,7 @@ class Image {
     virtual int GetBandCounts() const { return ImageData.channels(); }
 
     template <typename T>
-    T GetPixelValue(size_t row, size_t col) {
+    T GetPixelValue(size_t row, size_t col) const {
         if (_IsOutOfBounds(row, col)) {
             Error("Pixel position out of range: ({}, {}) when GetPixelValue", row, col);
         }
