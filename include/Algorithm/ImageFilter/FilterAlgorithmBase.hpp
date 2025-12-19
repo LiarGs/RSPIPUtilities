@@ -3,10 +3,6 @@
 
 namespace RSPIP::Algorithm::FilterAlgorithm {
 
-struct BasicFilterParam : AlgorithmParamBase {
-  public:
-    BasicFilterParam() = default;
-};
 class FilterAlgorithmBase : public IAlgorithm {
   protected:
     FilterAlgorithmBase() = default;

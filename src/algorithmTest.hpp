@@ -1,5 +1,7 @@
 ﻿#pragma once
 #include "RSPIP.h"
+#include "Util/ImageInfoVisitor.hpp"
+
 #include <Util/SuperDebug.hpp>
 
 using namespace std;
@@ -14,10 +16,10 @@ static void _TestForNormalImage() {
     auto normalImageName = "C:/Users/RSPIP/Pictures/Camera Roll/tempTest.png";
     auto normalSaveImagePath = "E:/RSPIP/GuoShuai/Resource/Temp/";
     auto normalSaveImageName = "NormalImageOutput.png";
-    auto normalImage = RSPIP::ImageRead(normalImageName, Util::ImageType::NormalImage);
-    RSPIP::ShowImage(normalImage);
-    RSPIP::SaveImage(normalImage, normalSaveImagePath,
-                     normalSaveImageName);
+    auto normalImage = RSPIP::NormalImageRead(normalImageName);
+    RSPIP::ShowImage(*normalImage);
+    RSPIP::Util::PrintImageInfo(*normalImage);
+    RSPIP::SaveImage(*normalImage, normalSaveImagePath, normalSaveImageName);
 }
 
 static void _TestForGeoImageMosaic() {
@@ -26,36 +28,25 @@ static void _TestForGeoImageMosaic() {
     auto imageNames = Util::GetTifImagePathFromPath(TestImagePath);
     auto cloudMaskNames = Util::GetTifImagePathFromPath(TestMaskImagePath);
 
-    std::vector<shared_ptr<RSPIP::GeoImage>> imageDatas = {};
-    std::vector<shared_ptr<RSPIP::CloudMask>> cloudMasks = {};
+    std::vector<GeoImage> imageDatas(imageNames.size());
+    std::vector<CloudMask> cloudMasks(cloudMaskNames.size());
 
-    for (const auto &geoImagePath : imageNames) {
-        auto geoImage = std::dynamic_pointer_cast<GeoImage>(RSPIP::ImageRead(geoImagePath, Util::ImageType::GeoImage));
-
-        // RSPIP::ShowImage(geoImage);
-        imageDatas.push_back(geoImage);
+    for (int i = 0; i < imageNames.size(); ++i) {
+        imageDatas[i] = *RSPIP::GeoImageRead(imageNames[i]);
     }
 
-    for (const auto &cloudMaskPath : cloudMaskNames) {
-        auto cloudMaskImage = std::dynamic_pointer_cast<CloudMask>(RSPIP::ImageRead(cloudMaskPath, Util::ImageType::CloudMask));
-
-        // RSPIP::ShowImage(cloudMaskImage);
-        cloudMasks.push_back(cloudMaskImage);
+    for (int i = 0; i < cloudMaskNames.size(); ++i) {
+        auto clodMask = RSPIP::CloudMaskImageRead(cloudMaskNames[i]);
+        clodMask->InitCloudMask();
+        cloudMasks[i] = std::move(*clodMask);
     }
 
-    std::unique_ptr<Algorithm::IAlgorithm> mosaicAlgorithm;
-    std::shared_ptr<AlgorithmParamBase> algorithmParams;
+    // mosaicAlgorithm = std::make_unique<MosaicAlgorithm::Simple>(imageDatas);
+    // mosaicAlgorithm = std::make_unique<MosaicAlgorithm::ShowOverLap>(imageDatas);
+    auto mosaicAlgorithm = std::make_unique<MosaicAlgorithm::DynamicPatch>(imageDatas, cloudMasks);
 
-    // mosaicAlgorithm = std::make_unique<MosaicAlgorithm::Simple>();
-    // mosaicAlgorithm = std::make_unique<MosaicAlgorithm::ShowOverLap>();
-    mosaicAlgorithm = std::make_unique<MosaicAlgorithm::DynamicPatch>();
-
-    // algorithmParams = std::make_shared<MosaicAlgorithm::BasicMosaicParam>(imageDatas);
-    algorithmParams = std::make_shared<MosaicAlgorithm::DynamicPatchParams>(imageDatas, cloudMasks);
-
-    // 统计算法运行时间
     SuperDebug::ScopeTimer algorithmTimer("Algorithm Execution");
-    mosaicAlgorithm->Execute(algorithmParams);
+    mosaicAlgorithm->Execute();
     RSPIP::SaveImage(mosaicAlgorithm->AlgorithmResult, GeoSaveImagePath, GeoSaveImageName);
 }
 
@@ -69,19 +60,28 @@ static void _TestForColorBalance() {
     string maskImagePath = "E:/RSPIP/GuoShuai/IsoPhotoBasedReconstruction/data/Mask/";
     string maskImageName = "4_3_5_1204646400.jpg";
 
-    auto targetImage = std::dynamic_pointer_cast<GeoImage>(RSPIP::ImageRead(targetImagePath + targetImageName, Util::ImageType::GeoImage));
-    auto referImage = std::dynamic_pointer_cast<GeoImage>(RSPIP::ImageRead(referImagePath + referImageName, Util::ImageType::GeoImage));
-    auto maskImage = std::dynamic_pointer_cast<CloudMask>(RSPIP::ImageRead(maskImagePath + maskImageName, Util::ImageType::CloudMask));
+    auto targetImage = RSPIP::GeoImageRead(targetImagePath + targetImageName);
 
-    std::unique_ptr<Algorithm::IAlgorithm> algorithm;
-    std::shared_ptr<AlgorithmParamBase> algorithmParams;
+    auto referImage = RSPIP::GeoImageRead(referImagePath + referImageName);
 
-    algorithm = std::make_unique<ColorBalanceAlgorithm::MatchStatistics>();
+    auto maskImage = RSPIP::CloudMaskImageRead(maskImagePath + maskImageName);
 
-    algorithmParams = std::make_shared<ColorBalanceAlgorithm::MatchStatisticsParams>(targetImage, referImage, maskImage);
+    auto algorithm = std::make_unique<ColorBalanceAlgorithm::MatchStatistics>(*targetImage, *referImage, *maskImage);
 
-    // 统计算法运行时间
     SuperDebug::ScopeTimer algorithmTimer("Algorithm Execution");
-    algorithm->Execute(algorithmParams);
+    algorithm->Execute();
     RSPIP::SaveImage(algorithm->AlgorithmResult, GeoSaveImagePath, GeoSaveImageName);
+}
+
+static void _TestForEvaluate() {
+    auto resultImagePath = "E:/RSPIP/GuoShuai/IsoPhotoBasedReconstruction/data/Result/11_22_10_1563206400_cp/11_22_10_1563206400.tiff";
+    auto referenceImagePath = "E:/RSPIP/GuoShuai/IsoPhotoBasedReconstruction/data/Refer/11_22_10_1563206400.tiff";
+    auto maskImagePath = "E:/RSPIP/GuoShuai/IsoPhotoBasedReconstruction/data/Mask/11_22_10_1563206400.jpg";
+
+    auto resultImage = RSPIP::GeoImageRead(resultImagePath);
+    auto referenceImage = RSPIP::GeoImageRead(referenceImagePath);
+    auto maskImage = RSPIP::CloudMaskImageRead(maskImagePath);
+
+    auto evaluator = std::make_unique<Algorithm::BoundaryGradientEvaluator>(*resultImage, *referenceImage, *maskImage);
+    evaluator->Execute();
 }

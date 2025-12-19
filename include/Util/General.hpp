@@ -23,22 +23,6 @@ inline bool IsGeoImage(const std::string &imagePath) {
     return (ext == ".tif" || ext == ".tiff");
 }
 
-inline std::shared_ptr<GeoImage> IsGeoImage(const std::shared_ptr<Image> &image) {
-    return std::dynamic_pointer_cast<GeoImage>(image);
-}
-
-void MatchMaskWithSource(std::vector<std::shared_ptr<CloudMask>> &cloudMasks, const std::vector<std::shared_ptr<GeoImage>> &imageDatas) {
-    //  TODO: 此处还可以做一些根据名字或者其他来做匹配的逻辑
-    if (imageDatas.size() != cloudMasks.size()) {
-        Error("Size not match between imageData and cloudMasks!");
-        return;
-    }
-
-    for (int index = 0; index < imageDatas.size(); ++index) {
-        cloudMasks[index]->SetSourceImage(imageDatas[index]);
-    }
-}
-
 inline GDALDataType CVTypeToGDALType(int cvType) {
     switch (cvType) {
     case CV_8UC1:

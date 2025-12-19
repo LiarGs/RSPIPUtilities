@@ -6,61 +6,83 @@
 
 namespace RSPIP {
 
-class CloudMask : public MaskImage, public IGeoTransformer {
+class CloudMask : public GeoImage {
 
   public:
-    CloudMask() : MaskImage() {}
+    CloudMask() : GeoImage() {}
 
-    CloudMask(const cv::Mat &imageData) : MaskImage(imageData) {}
+    CloudMask(const cv::Mat &imageData) : GeoImage(imageData) {}
 
-    CloudMask(const cv::Mat &imageData, const std::string &imageName) : MaskImage(imageData, imageName) {}
+    CloudMask(const cv::Mat &imageData, const std::string &imageName) : GeoImage(imageData, imageName) {}
+
+    void Accept(IImageVisitor &visitor) const override {
+        visitor.Visit(*this);
+    }
 
     void InitCloudMask() {
         _ExtractCloudGroups();
     }
 
-    void SetSourceImage(const std::shared_ptr<GeoImage> &sourceImage) {
+    void SetSourceImage(const GeoImage &sourceImage) {
         SourceGeoImage = sourceImage;
-        GeoTransform = sourceImage->GeoTransform;
-        Projection = sourceImage->Projection;
-    }
-
-    void PrintImageInfo() override {
-        Image::PrintImageInfo();
-        IGeoTransformer::PrintGeoInfo();
+        GeoTransform = sourceImage.GeoTransform;
+        Projection = sourceImage.Projection;
     }
 
   private:
     void _ExtractCloudGroups() {
         cv::Mat labels, stats, centroids;
-        int num_components = cv::connectedComponentsWithStats(
+        int numComponents = cv::connectedComponentsWithStats(
             ImageData, labels, stats, centroids, 8, CV_32S);
 
-        for (int label = 1; label < num_components; ++label) {
-            CloudGroup cloudGroup;
+        CloudGroups.resize(numComponents - 1);
+
+        // 提取地理变换参数，避免循环中重复访问
+        double gt0 = 0, gt1 = 1, gt2 = 0, gt3 = 0, gt4 = 0, gt5 = 1;
+        if (GeoTransform.size() >= 6) {
+            gt0 = GeoTransform[0];
+            gt1 = GeoTransform[1];
+            gt2 = GeoTransform[2];
+            gt3 = GeoTransform[3];
+            gt4 = GeoTransform[4];
+            gt5 = GeoTransform[5];
+        }
+
+#pragma omp parallel for
+        for (int label = 1; label < numComponents; ++label) {
+            auto &cloudGroup = CloudGroups[label - 1];
 
             // 设置外接矩形
-            cloudGroup.CloudRect.x = stats.at<int>(label, cv::CC_STAT_LEFT);
-            cloudGroup.CloudRect.y = stats.at<int>(label, cv::CC_STAT_TOP);
-            cloudGroup.CloudRect.width = stats.at<int>(label, cv::CC_STAT_WIDTH);
-            cloudGroup.CloudRect.height = stats.at<int>(label, cv::CC_STAT_HEIGHT);
+            int x = stats.at<int>(label, cv::CC_STAT_LEFT);
+            int y = stats.at<int>(label, cv::CC_STAT_TOP);
+            int w = stats.at<int>(label, cv::CC_STAT_WIDTH);
+            int h = stats.at<int>(label, cv::CC_STAT_HEIGHT);
+            cloudGroup.CloudRect = cv::Rect(x, y, w, h);
 
             // 收集该区域内的所有云像素
-            for (int row = cloudGroup.CloudRect.y; row < cloudGroup.CloudRect.y + cloudGroup.CloudRect.height; ++row) {
-                for (int col = cloudGroup.CloudRect.x; col < cloudGroup.CloudRect.x + cloudGroup.CloudRect.width; ++col) {
-                    if (labels.at<int>(row, col) == label) {
-                        auto pixelValue = GetPixelValue<uchar>(row, col);
-                        cloudGroup.CloudPixelMap[row].emplace_back(pixelValue, row, col, GetLatitude(row, col), GetLongitude(row, col));
+            for (int row = y; row < y + h; ++row) {
+                const int *labelPtr = labels.ptr<int>(row);
+                const uchar *dataPtr = ImageData.ptr<uchar>(row);
+
+                std::vector<GeoPixel<uchar>> rowPixels;
+                rowPixels.reserve(w);
+
+                for (int col = x; col < x + w; ++col) {
+                    if (labelPtr[col] == label) {
+                        double lat = gt3 + row * gt5 + col * gt4;
+                        double lon = gt0 + col * gt1 + row * gt2;
+                        rowPixels.emplace_back(dataPtr[col], row, col, lat, lon);
                     }
                 }
+                if (!rowPixels.empty()) {
+                    cloudGroup.CloudPixelMap[row] = std::move(rowPixels);
+                }
             }
-
-            CloudGroups.push_back(cloudGroup);
         }
     }
 
   public:
     std::vector<CloudGroup> CloudGroups;
-    std::shared_ptr<GeoImage> SourceGeoImage;
+    GeoImage SourceGeoImage;
 };
 } // namespace RSPIP

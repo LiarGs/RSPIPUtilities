@@ -1,7 +1,5 @@
 ﻿#pragma once
 #include "Util/SuperDebug.hpp"
-#include <string>
-#include <vector>
 
 namespace RSPIP {
 
@@ -39,7 +37,7 @@ class IGeoTransformer {
         return {GetLatitude(row, column), GetLongitude(row, column)};
     }
 
-    virtual std::pair<int, int> LatLonToRC(double latitude, double longitude) {
+    virtual std::pair<int, int> LatLonToRC(double latitude, double longitude) const {
         if (GeoTransform.size() != 6) {
             Error("GeoTransform data is not available.");
 
@@ -92,5 +90,7 @@ class IGeoTransformer {
     IGeoTransformer() = default;
     IGeoTransformer(const IGeoTransformer &) = default;
     IGeoTransformer(IGeoTransformer &&) = default;
+    IGeoTransformer &operator=(const IGeoTransformer &) = default;
+    IGeoTransformer &operator=(IGeoTransformer &&) = default;
 };
 } // namespace RSPIP

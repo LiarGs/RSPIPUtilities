@@ -4,24 +4,21 @@
 
 namespace RSPIP::Algorithm::ColorBalanceAlgorithm {
 
-struct BasicColorBalanceParam : AlgorithmParamBase {
-  public:
-    BasicColorBalanceParam(std::shared_ptr<GeoImage> targetImage, std::shared_ptr<GeoImage> referenceImage)
-        : TargetImage(targetImage), ReferenceImage(referenceImage) {}
-
-  public:
-    std::shared_ptr<GeoImage> TargetImage;
-    std::shared_ptr<GeoImage> ReferenceImage;
-};
-
 class ColorBalanceAlgorithmBase : public IAlgorithm {
   public:
+    ColorBalanceAlgorithmBase(const Image &targetImage, const Image &referenceImage)
+        : _TargetImage(targetImage), _ReferenceImage(referenceImage) {}
+
     virtual ~ColorBalanceAlgorithmBase() = default;
 
   protected:
     ColorBalanceAlgorithmBase() = default;
     ColorBalanceAlgorithmBase(const ColorBalanceAlgorithmBase &) = default;
     ColorBalanceAlgorithmBase(ColorBalanceAlgorithmBase &&) = default;
+
+  protected:
+    const Image &_TargetImage;
+    const Image &_ReferenceImage;
 };
 
 } // namespace RSPIP::Algorithm::ColorBalanceAlgorithm

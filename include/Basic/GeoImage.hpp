@@ -10,35 +10,44 @@ namespace RSPIP {
 class GeoImage : public Image, public IGeoTransformer {
   public:
     GeoImage() : Image(), ExtraBandDatas(), NonData(Color::Black) {}
+    GeoImage(const cv::Mat &imageData) : Image(imageData), ExtraBandDatas(), NonData(Color::Black) {}
+    GeoImage(const cv::Mat &imageData, const std::string &imageName) : Image(imageData, imageName), ExtraBandDatas(), NonData(Color::Black) {}
 
     int GetBandCounts() const override { return static_cast<int>(ExtraBandDatas.size() + ImageData.channels()); }
 
-    using Image::SetPixelValue; // 避免隐藏掉另一个重载函数
-    void SetPixelValue(int row, int col, int band, uchar value) override {
-        if (band >= GetBandCounts()) {
-            Error("Band index out of range: {}", band);
-            throw std::runtime_error("Band index out of range: " + std::to_string(band));
+    void Accept(IImageVisitor &visitor) const override {
+        visitor.Visit(*this);
+    }
+
+    using Image::GetPixelValue;
+    uchar GetPixelValue(size_t row, size_t col, int band) const override {
+        if (_IsOutOfBounds(row, col, band)) {
+            return 0;
         }
 
-        if (_IsOutOfBounds(row, col)) {
-            Error("Pixel position out of range: ({}, {})", row, col);
-            throw std::runtime_error("Pixel position or Band out of range.");
-        }
-
-        if (band <= 3) {
-            ImageData.at<cv::Vec3b>(row, col)[band - 1] = value;
+        int baseChannels = ImageData.channels();
+        if (band <= baseChannels) {
+            const uchar *ptr = ImageData.ptr<uchar>(row);
+            return ptr[col * baseChannels + (band - 1)];
         } else {
-            ExtraBandDatas[band - 4].at<uchar>(row, col) = value;
+            return ExtraBandDatas[band - baseChannels - 1].at<uchar>(row, col);
         }
     }
 
-    void PrintImageInfo() override {
-        Image::PrintImageInfo();
-        IGeoTransformer::PrintGeoInfo();
+    using Image::SetPixelValue;
+    void SetPixelValue(int row, int col, int band, uchar value) override {
+        _IsOutOfBounds(row, col, band);
+
+        int baseChannels = ImageData.channels();
+        if (band <= baseChannels) {
+            ImageData.ptr<uchar>(row)[col * baseChannels + (band - 1)] = value;
+        } else {
+            ExtraBandDatas[band - baseChannels - 1].at<uchar>(row, col) = value;
+        }
     }
 
   public:
-    std::vector<cv::Mat> ExtraBandDatas; // Extra band data
+    std::vector<cv::Mat> ExtraBandDatas;
     cv::Vec3b NonData;
 };
 
