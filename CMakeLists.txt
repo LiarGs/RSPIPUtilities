@@ -5,17 +5,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(OpenCV REQUIRED)
+find_package(OpenMP REQUIRED)
 include_directories(${OpenCV_INCLUDE_DIRS} include)
+# 注意：请确保 GDAL 的路径在你的机器上是正确的
 include_directories("D:/C++_Library/GDAL/Release/include")
 
-find_package(OpenMP REQUIRED)
 
-
-# 显式列出源文件，避免GLOB的潜在问题
-set(SOURCES 
-    src/main.cpp
-    # 添加其他源文件
-)
+file(GLOB_RECURSE SOURCES "src/*.cpp")
 
 if(NOT SOURCES)
     message(FATAL_ERROR "No source files specified!")
@@ -33,7 +29,9 @@ endif()
 add_executable(${PROJECT_NAME} ${SOURCES} ${SOURCES_RECURSIVE})
 
 target_link_libraries(${PROJECT_NAME} ${OpenCV_LIBS})
+# 注意：请确保 GDAL 的库路径在你的机器上是正确的
 target_link_libraries(${PROJECT_NAME} "D:/C++_Library/GDAL/Release/lib/gdal.lib")
+
 if(OpenMP_CXX_FOUND)
     target_link_libraries(${PROJECT_NAME} OpenMP::OpenMP_CXX)
 endif()

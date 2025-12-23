@@ -44,6 +44,10 @@
 # IDE files
 .vscode/
 .codebuddy/
+.trae/
 
 # Build directories
 build/
+
+# Test Files
+refactoring/

@@ -8,14 +8,14 @@
 
 namespace SuperDebug {
 
-namespace Color {
+namespace DebugColor {
 constexpr const char *RESET = "\033[0m";
 constexpr const char *RED = "\033[31m";
 constexpr const char *YELLOW = "\033[33m";
 constexpr const char *GREEN = "\033[32m";
 constexpr const char *CYAN = "\033[36m";
 constexpr const char *WHITE = "\033[37m";
-} // namespace Color
+} // namespace DebugColor
 
 inline std::string current_time_string() {
     using namespace std::chrono;
@@ -45,25 +45,25 @@ inline void log(Level level, std::string_view fmt, Args &&...args) {
     std::string formatted = std::vformat(fmt, std::make_format_args(args...));
 
     std::string level_str;
-    const char *color = Color::WHITE;
+    const char *color = DebugColor::WHITE;
 
     switch (level) {
     case Level::Info:
         level_str = "info";
-        color = Color::GREEN;
+        color = DebugColor::GREEN;
         break;
     case Level::Warn:
         level_str = "warning";
-        color = Color::YELLOW;
+        color = DebugColor::YELLOW;
         break;
     case Level::Error:
         level_str = "error";
-        color = Color::RED;
+        color = DebugColor::RED;
         break;
     }
 
     std::cout << color << "[" << current_time_string() << "] "
-              << "[" << level_str << "] " << formatted << Color::RESET
+              << "[" << level_str << "] " << formatted << DebugColor::RESET
               << std::endl;
 }
 

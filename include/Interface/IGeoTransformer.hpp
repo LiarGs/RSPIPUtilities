@@ -8,9 +8,9 @@ struct ImageGeoBounds {
     double MinLongitude, MaxLongitude, MinLatitude, MaxLatitude;
 };
 
+// (0, 0) at top-left corner
 class IGeoTransformer {
   public:
-    // (0, 0) at top-left corner
     virtual double GetLongitude(size_t row, size_t column) const {
         if (GeoTransform.size() != 6) {
             Error("GeoTransform data is not available.");
@@ -19,7 +19,6 @@ class IGeoTransformer {
         return GeoTransform[0] + column * GeoTransform[1] + row * GeoTransform[2];
     }
 
-    // (0, 0) at top-left corner
     virtual double GetLatitude(size_t row, size_t column) const {
         if (GeoTransform.size() != 6) {
             Error("GeoTransform data is not available.");
@@ -28,7 +27,6 @@ class IGeoTransformer {
         return GeoTransform[3] + column * GeoTransform[4] + row * GeoTransform[5];
     }
 
-    // (0, 0) at top-left corner
     virtual std::pair<double, double> GetLatLon(size_t row, size_t column) const {
         if (GeoTransform.size() != 6) {
             Error("GeoTransform data is not available.");
