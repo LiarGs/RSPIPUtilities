@@ -7,11 +7,15 @@ int main(int argc, char *argv[]) {
     GDALAllRegister();
     // _TestForNormalImage();
 
-    _TestForGeoImageMosaic();
+    // _TestForGeoImageMosaic();
 
     // _TestForColorBalance();
 
     // _TestForEvaluate();
+
+    _TestForReconstruct();
+
+    // _TestForLinearSolver();
 
     return 0;
 }

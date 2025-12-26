@@ -13,8 +13,10 @@ void CloudMask::Accept(IImageVisitor &visitor) const {
     visitor.Visit(*this);
 }
 
-void CloudMask::InitCloudMask() {
-    _ExtractCloudGroups();
+void CloudMask::Init() {
+    if (CloudGroups.empty()) {
+        _ExtractCloudGroups();
+    }
 }
 
 void CloudMask::SetSourceImage(const GeoImage &sourceImage) {
@@ -24,11 +26,8 @@ void CloudMask::SetSourceImage(const GeoImage &sourceImage) {
 }
 
 void CloudMask::_ExtractCloudGroups() {
-    if (ImageData.empty())
-        return;
     cv::Mat labels, stats, centroids;
-    int numComponents = cv::connectedComponentsWithStats(
-        ImageData, labels, stats, centroids, 8, CV_32S);
+    int numComponents = cv::connectedComponentsWithStats(ImageData, labels, stats, centroids, 8, CV_32S);
 
     CloudGroups.resize(numComponents - 1);
 
@@ -52,21 +51,22 @@ void CloudMask::_ExtractCloudGroups() {
         int y = stats.at<int>(label, cv::CC_STAT_TOP);
         int w = stats.at<int>(label, cv::CC_STAT_WIDTH);
         int h = stats.at<int>(label, cv::CC_STAT_HEIGHT);
-        cloudGroup.CloudRect = cv::Rect(x, y, w, h);
+        cloudGroup.BoundingBox = cv::Rect(x, y, w, h);
 
         // 收集该区域内的所有云像素
+        std::vector<CloudPixel<unsigned char>> rowPixels;
+        rowPixels.reserve(w);
+        int pixelNumber = 0;
         for (int row = y; row < y + h; ++row) {
             const int *labelPtr = labels.ptr<int>(row);
-            const uchar *dataPtr = ImageData.ptr<uchar>(row);
+            const unsigned char *dataPtr = ImageData.ptr<unsigned char>(row);
 
-            std::vector<GeoPixel<uchar>> rowPixels;
-            rowPixels.reserve(w);
-
+            rowPixels.clear();
             for (int col = x; col < x + w; ++col) {
                 if (labelPtr[col] == label) {
                     double lat = gt3 + row * gt5 + col * gt4;
                     double lon = gt0 + col * gt1 + row * gt2;
-                    rowPixels.emplace_back(dataPtr[col], row, col, lat, lon);
+                    rowPixels.emplace_back(dataPtr[col], row, col, lat, lon, pixelNumber++);
                 }
             }
             if (!rowPixels.empty()) {

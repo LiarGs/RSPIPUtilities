@@ -1,5 +1,7 @@
 ﻿#pragma once
 #include "Util/SuperDebug.hpp"
+#include <cmath>
+#include <vector>
 
 namespace RSPIP {
 
@@ -43,7 +45,7 @@ class IGeoTransformer {
         }
 
         if (!IsContain(latitude, longitude)) {
-            Error("Warning: Mosaic position out of bounds ({}, {}). Skipping", latitude, longitude);
+            Warn("Warning: Mosaic position out of bounds ({}, {}). Skipping", latitude, longitude);
 
             return {-1, -1};
         }

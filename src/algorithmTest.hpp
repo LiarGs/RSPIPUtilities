@@ -1,7 +1,7 @@
 ﻿#pragma once
+#include "Math/LinearSolver.h"
 #include "RSPIP.h"
-#include "Util/ImageInfoVisitor.h"
-#include <Util/SuperDebug.hpp>
+#include "Util/SuperDebug.hpp"
 
 using namespace RSPIP;
 using namespace Algorithm;
@@ -29,6 +29,7 @@ static void _TestForGeoImageMosaic() {
     std::vector<GeoImage> imageDatas(imageNames.size());
     std::vector<CloudMask> cloudMasks(cloudMaskNames.size());
 
+    SuperDebug::ScopeTimer loadingTimer("Data Loading Phase");
 #pragma omp parallel for
     for (int i = 0; i < imageNames.size(); ++i) {
         imageDatas[i] = std::move(*IO::GeoImageRead(imageNames[i]));
@@ -37,9 +38,10 @@ static void _TestForGeoImageMosaic() {
 #pragma omp parallel for
     for (int i = 0; i < cloudMaskNames.size(); ++i) {
         auto clodMask = IO::CloudMaskImageRead(cloudMaskNames[i]);
-        clodMask->InitCloudMask();
         cloudMasks[i] = std::move(*clodMask);
     }
+
+    loadingTimer.Stop();
 
     // auto mosaicAlgorithm = std::make_unique<MosaicAlgorithm::Simple>(imageDatas);
     // auto mosaicAlgorithm = std::make_unique<MosaicAlgorithm::ShowOverLap>(imageDatas);
@@ -86,4 +88,45 @@ static void _TestForEvaluate() {
     SuperDebug::ScopeTimer algorithmTimer("Algorithm Execution");
     evaluator->Execute();
     SuperDebug::Info("Result: {}", evaluator->EvaluateResult);
+}
+
+static void _TestForReconstruct() {
+    std::string targetImagePath = "E:/RSPIP/GuoShuai/IsoPhotoBasedReconstruction/data/Original/";
+    std::string targetImageName = "11_22_10_1563206400.tiff";
+
+    std::string referImagePath = "E:/RSPIP/GuoShuai/IsoPhotoBasedReconstruction/data/Refer/";
+    std::string referImageName = "11_22_10_1563206400.tiff";
+
+    std::string maskImagePath = "E:/RSPIP/GuoShuai/IsoPhotoBasedReconstruction/data/Mask/";
+    std::string maskImageName = "11_22_10_1563206400.jpg";
+
+    auto targetImage = IO::GeoImageRead(targetImagePath + targetImageName);
+
+    auto referImage = IO::GeoImageRead(referImagePath + referImageName);
+
+    auto maskImage = IO::CloudMaskImageRead(maskImagePath + maskImageName);
+
+    // auto algorithm = std::make_unique<ReconstructAlgorithm::Simple>(*targetImage, *referImage, *maskImage);
+    // auto algorithm = std::make_unique<ReconstructAlgorithm::ColorBalanceReconstruct>(*targetImage, *referImage, *maskImage);
+    auto algorithm = std::make_unique<ReconstructAlgorithm::IsophoteConstrain>(*targetImage, *referImage, *maskImage);
+
+    SuperDebug::ScopeTimer algorithmTimer("Algorithm Execution");
+    algorithm->Execute();
+    IO::SaveImage(algorithm->AlgorithmResult, GeoSaveImagePath, GeoSaveImageName);
+}
+
+static void _TestForLinearSolver() {
+    // 构造一个简单的方程组: 2x + y = 5, x + 3y = 10
+    // 解应该是 x=1, y=3
+    cv::Mat A = (cv::Mat_<double>(2, 2) << 2, 1, 1, 3);
+    cv::Mat B = (cv::Mat_<double>(2, 1) << 5, 10);
+    cv::Mat X;
+
+    auto solver = Math::SolverFactory::CreateSolver(Math::SolverMethod::Cholesky);
+
+    if (solver->Solve(A, B, X)) {
+        SuperDebug::Info("Solution found: x={}, y={}", X.at<double>(0), X.at<double>(1));
+    } else {
+        SuperDebug::Error("Failed to solve linear system.");
+    }
 }

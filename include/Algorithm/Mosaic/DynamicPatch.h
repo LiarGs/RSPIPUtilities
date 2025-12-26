@@ -1,4 +1,8 @@
-﻿#pragma once
+﻿/// Inspired by paper
+/// A flexible multi-temporal orthoimage mosaicking method based on dynamic variable patches
+/// by YU Xiao Yu
+
+#pragma once
 #include "Algorithm/Mosaic/MosaicAlgorithmBase.h"
 #include "Basic/CloudMask.h"
 #include <vector>
@@ -15,7 +19,7 @@ class DynamicPatch : public MosaicAlgorithmBase {
     void _PasteImageToMosaicResult(const GeoImage &imageData) override;
     void _ProcessWithClouds();
     void _ProcessWithCloudGroup(const CloudGroup &cloudGroup);
-    std::vector<GeoPixel<cv::Vec3b>> _OptimalPatchSelection(const std::vector<GeoPixel<uchar>> &rowCloudPixels, size_t currentCloudPixelIndex);
+    std::vector<GeoPixel<cv::Vec3b>> _OptimalPatchSelection(const std::vector<CloudPixel<unsigned char>> &rowCloudPixels, size_t currentCloudPixelIndex);
 
   private:
     /// @brief 这里用拷贝是因为要对数据排序

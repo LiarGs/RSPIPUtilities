@@ -85,28 +85,32 @@ inline void Error(std::string_view fmt, Args &&...args) {
 class ScopeTimer {
   public:
     explicit ScopeTimer(std::string_view name)
-        : _name(name), _start(std::chrono::high_resolution_clock::now()) {
-        Info("Timer [{}] Started...", _name);
+        : _Name(name), _Start(std::chrono::high_resolution_clock::now()) {
+        Info("Timer [{}] Started...", _Name);
     }
 
     void Stop() {
         auto end = std::chrono::high_resolution_clock::now();
-        auto durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(end - _start).count();
+        auto durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(end - _Start).count();
         double durationSec = durationMs / 1000.0;
 
-        Info("Timer [{}] Finished. Duration: {} ms ({:.3f} s)", _name, durationMs, durationSec);
+        Info("Timer [{}] Finished. Duration: {} ms ({:.3f} s)", _Name, durationMs, durationSec);
+        _IsStoped = true;
     }
 
     ~ScopeTimer() {
-        Stop();
+        if (!_IsStoped) {
+            Stop();
+        }
     }
 
     ScopeTimer(const ScopeTimer &) = delete;
     ScopeTimer &operator=(const ScopeTimer &) = delete;
 
   private:
-    std::string _name;
-    std::chrono::high_resolution_clock::time_point _start;
+    bool _IsStoped = false;
+    std::string _Name;
+    std::chrono::high_resolution_clock::time_point _Start;
 };
 
 } // namespace SuperDebug

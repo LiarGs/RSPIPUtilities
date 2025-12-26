@@ -16,6 +16,7 @@ void DynamicPatch::Execute() {
     RSPIP::Util::SortImagesByLongitude(_ImageDatas);
     RSPIP::Util::SortImagesByLongitude(_CloudMasks);
     for (size_t index = 0; index < _ImageDatas.size(); ++index) {
+        _CloudMasks[index].Init();
         _CloudMasks[index].SetSourceImage(_ImageDatas[index]);
     }
 
@@ -102,7 +103,7 @@ void DynamicPatch::_ProcessWithCloudGroup(const CloudGroup &cloudGroup) {
     }
 }
 
-std::vector<GeoPixel<cv::Vec3b>> DynamicPatch::_OptimalPatchSelection(const std::vector<GeoPixel<uchar>> &rowCloudPixels, size_t currentCloudPixelIndex) {
+std::vector<GeoPixel<cv::Vec3b>> DynamicPatch::_OptimalPatchSelection(const std::vector<CloudPixel<unsigned char>> &rowCloudPixels, size_t currentCloudPixelIndex) {
     double bestPearsonCorrelation = -1.0;
     std::vector<GeoPixel<cv::Vec3b>> bestPatch = {};
 
@@ -129,18 +130,18 @@ std::vector<GeoPixel<cv::Vec3b>> DynamicPatch::_OptimalPatchSelection(const std:
                 break;
             }
 
-            auto pixelValue = otherImage.GetPixelValue<cv::Vec3b>(otherImagePixelRow - 1, otherImagePixelCol);
-            if (pixelValue == otherImage.NonData) {
+            auto previousLinepixelValue = otherImage.GetPixelValue<cv::Vec3b>(otherImagePixelRow - 1, otherImagePixelCol);
+            if (previousLinepixelValue == otherImage.NonData) {
                 break;
             }
 
-            _otherImagePreviousLine.emplace_back(Util::BGRToGray(pixelValue));
+            _otherImagePreviousLine.emplace_back(Util::BGRToGray(previousLinepixelValue));
 
             auto [mosaicResultPixelRow, mosaicResultPixelCol] = AlgorithmResult.LatLonToRC(nextCloudPixel.Latitude, nextCloudPixel.Longitude);
             _mosaicResultPreviousLine.emplace_back(Util::BGRToGray(AlgorithmResult.GetPixelValue<cv::Vec3b>(mosaicResultPixelRow - 1, mosaicResultPixelCol)));
 
-            auto patchPixel = GeoPixel<cv::Vec3b>(otherImage.GetPixelValue<cv::Vec3b>(otherImagePixelRow, otherImagePixelCol), otherImagePixelRow, otherImagePixelCol, nextCloudPixel.Latitude, nextCloudPixel.Longitude);
-            _currentPatch.emplace_back(patchPixel);
+            auto currentPatchPixelValue = otherImage.GetPixelValue<cv::Vec3b>(otherImagePixelRow, otherImagePixelCol);
+            _currentPatch.emplace_back(currentPatchPixelValue, otherImagePixelRow, otherImagePixelCol, nextCloudPixel.Latitude, nextCloudPixel.Longitude);
         }
 
         if (_mosaicResultPreviousLine.empty() || _otherImagePreviousLine.empty()) {

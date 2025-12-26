@@ -29,7 +29,7 @@ void MosaicAlgorithmBase::_GetGeoInfo() {
         AlgorithmResult.ImageBounds.MaxLatitude = std::max(AlgorithmResult.ImageBounds.MaxLatitude, img.ImageBounds.MaxLatitude);
     }
 
-    // 继承第一张图的分辨率和旋转参数
+    // 镶嵌结果继承第一张图的分辨率和旋转参数
     AlgorithmResult.GeoTransform = {AlgorithmResult.ImageBounds.MinLongitude, _MosaicImages[0].GeoTransform[1], 0,
                                     AlgorithmResult.ImageBounds.MaxLatitude, 0, _MosaicImages[0].GeoTransform[5]};
 

@@ -7,6 +7,8 @@
 
 namespace RSPIP::Util {
 
+static const std::vector<std::pair<int, int>> Directions = {{-1, -1}, {-1, 0}, {-1, 1}, {0, 1}, {1, 1}, {1, 0}, {1, -1}, {0, -1}};
+
 enum class ImageType {
     NormalImage,
     GeoImage,

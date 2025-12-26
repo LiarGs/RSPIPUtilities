@@ -1,7 +1,6 @@
 ﻿#pragma once
 #include "Basic/CloudGroup.h"
 #include "Basic/GeoImage.h"
-#include "Basic/MaskImage.h"
 
 namespace RSPIP {
 
@@ -15,7 +14,7 @@ class CloudMask : public GeoImage {
 
     void Accept(IImageVisitor &visitor) const override;
 
-    void InitCloudMask();
+    void Init();
 
     void SetSourceImage(const GeoImage &sourceImage);
 
@@ -23,7 +22,7 @@ class CloudMask : public GeoImage {
     void _ExtractCloudGroups();
 
   public:
-    std::vector<CloudGroup> CloudGroups;
     const GeoImage *SourceGeoImage;
+    std::vector<CloudGroup> CloudGroups;
 };
 } // namespace RSPIP

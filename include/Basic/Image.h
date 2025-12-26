@@ -1,11 +1,10 @@
 ﻿#pragma once
-#include <opencv2/core/mat.hpp> // 只包含必要的 OpenCV 头
+#include <opencv2/core/mat.hpp>
 #include <stdexcept>
 #include <string>
 
 namespace RSPIP {
 
-// 前置声明，避免包含整个头文件
 class IImageVisitor;
 
 class Image {
@@ -23,12 +22,19 @@ class Image {
     virtual int GetBandCounts() const;
 
     template <typename T>
-    T GetPixelValue(size_t row, size_t col) const {
+    T GetPixelValue(int row, int col) const {
         _IsOutOfBounds(row, col);
         return ImageData.at<T>(static_cast<int>(row), static_cast<int>(col));
     }
 
-    virtual uchar GetPixelValue(size_t row, size_t col, int band) const;
+    template <typename T>
+    T GetPixelValue(int row, int col, int band) const {
+        if (_IsOutOfBounds(row, col, band))
+            return -1;
+
+        const T *ptr = ImageData.ptr<T>(static_cast<int>(row));
+        return ptr[col * ImageData.channels() + (band - 1)];
+    }
 
     template <typename T>
     void SetPixelValue(int row, int col, T value) {
@@ -38,7 +44,14 @@ class Image {
         ImageData.at<T>(row, col) = value;
     }
 
-    virtual void SetPixelValue(int row, int col, int band, uchar value);
+    template <typename T>
+    void SetPixelValue(int row, int col, int band, T value) {
+        if (_IsOutOfBounds(row, col, band))
+            return;
+
+        T *ptr = ImageData.ptr<T>(row);
+        ptr[col * ImageData.channels() + (band - 1)] = value;
+    }
 
     int GetImageType() const;
 
@@ -47,7 +60,7 @@ class Image {
     bool _IsOutOfBounds(int row, int col, int band) const;
 
   public:
-    cv::Mat ImageData; // Pixel data
+    cv::Mat ImageData;
     std::string ImageName;
 };
 } // namespace RSPIP

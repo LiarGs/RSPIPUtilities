@@ -39,7 +39,7 @@ std::pair<int, int> IGeoTransformer::LatLonToRC(double latitude, double longitud
     }
 
     if (!IsContain(latitude, longitude)) {
-        SuperDebug::Error("Warning: Mosaic position out of bounds ({}, {}). Skipping", latitude, longitude);
+        SuperDebug::Warn("Warning: Mosaic position out of bounds ({}, {}). Skipping", latitude, longitude);
         return {-1, -1};
     }
 
