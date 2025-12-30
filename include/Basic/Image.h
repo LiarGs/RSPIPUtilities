@@ -23,13 +23,13 @@ class Image {
 
     template <typename T>
     T GetPixelValue(int row, int col) const {
-        _IsOutOfBounds(row, col);
+        IsOutOfBounds(row, col);
         return ImageData.at<T>(static_cast<int>(row), static_cast<int>(col));
     }
 
     template <typename T>
     T GetPixelValue(int row, int col, int band) const {
-        if (_IsOutOfBounds(row, col, band))
+        if (IsOutOfBounds(row, col, band))
             return -1;
 
         const T *ptr = ImageData.ptr<T>(static_cast<int>(row));
@@ -38,7 +38,7 @@ class Image {
 
     template <typename T>
     void SetPixelValue(int row, int col, T value) {
-        if (_IsOutOfBounds(row, col)) {
+        if (IsOutOfBounds(row, col)) {
             return;
         }
         ImageData.at<T>(row, col) = value;
@@ -46,7 +46,7 @@ class Image {
 
     template <typename T>
     void SetPixelValue(int row, int col, int band, T value) {
-        if (_IsOutOfBounds(row, col, band))
+        if (IsOutOfBounds(row, col, band))
             return;
 
         T *ptr = ImageData.ptr<T>(row);
@@ -55,9 +55,8 @@ class Image {
 
     int GetImageType() const;
 
-  protected:
-    bool _IsOutOfBounds(int row, int col) const;
-    bool _IsOutOfBounds(int row, int col, int band) const;
+    bool IsOutOfBounds(int row, int col) const;
+    bool IsOutOfBounds(int row, int col, int band) const;
 
   public:
     cv::Mat ImageData;

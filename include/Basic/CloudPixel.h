@@ -12,7 +12,7 @@ struct CloudPixel : public GeoPixel<T> {
     CloudPixel(T value, int row, int col, double lat, double lon, int pixelNumber) : GeoPixel<T>(value, row, col, lat, lon), PixelNumber(pixelNumber) {}
 
   public:
-    // 在CloudGroup中的序号
+    // 在CloudGroup中的序号 从0开始
     int PixelNumber;
 };
 } // namespace RSPIP

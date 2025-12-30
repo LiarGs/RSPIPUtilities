@@ -12,7 +12,11 @@
 namespace RSPIP::IO {
 
 ImageSaveVisitor::ImageSaveVisitor(const std::string &path, const std::string &name)
-    : _Path(path), _Name(name), _Success(false) {}
+    : _Path(path), _Name(name), _Success(false) {
+    if (path.back() != '/') {
+        _Path += '/';
+    }
+}
 
 void ImageSaveVisitor::Visit(const Image &image) {
     _SaveNonGeoImage(image);
@@ -98,6 +102,9 @@ void ImageSaveVisitor::_SaveGeoImage(const GeoImage &geoImage) {
 }
 
 void ImageSaveVisitor::_SaveNonGeoImage(const Image &image) {
+    if (image.ImageData.empty()) {
+        SuperDebug::Error("SaveImage is Empty!");
+    }
     const cv::Mat &mergedImg = image.ImageData;
 
     bool _Success = cv::imwrite(_Path + _Name, mergedImg);

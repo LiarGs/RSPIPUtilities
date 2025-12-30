@@ -12,6 +12,13 @@ MatchStatistics::MatchStatistics(const Image &targetImage, const Image &referenc
 void MatchStatistics::Execute() {
     Info("Executing MatchStatistics ColorBalance...");
 
+    if (_TargetImage.ImageData.empty()) {
+        Error("Target Image is Empty!");
+    }
+    if (_ReferenceImage.ImageData.empty()) {
+        Error("Reference Image is Empty!");
+    }
+
     // Exclude extreme pixels (too dark or too bright) from statistics
     // Mask out pixels with pixel < 3 (black) or > 210 (bright)
     cv::Mat maskMat, greyMat;
@@ -20,6 +27,8 @@ void MatchStatistics::Execute() {
 
     if (!_Mask.ImageData.empty()) {
         maskMat.setTo(0, _Mask.ImageData);
+    } else {
+        Error("the Mask is Empty!");
     }
 
     std::vector<double> targetMeans(_TargetImage.GetBandCounts(), 0.0);

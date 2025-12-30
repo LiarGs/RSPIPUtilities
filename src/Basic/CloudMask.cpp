@@ -5,9 +5,18 @@
 namespace RSPIP {
 
 CloudMask::CloudMask() : GeoImage() {}
-CloudMask::CloudMask(const cv::Mat &imageData) : GeoImage(imageData) {}
-CloudMask::CloudMask(const cv::Mat &cloudData, const GeoImage &sourceImage) : GeoImage(cloudData), SourceGeoImage(&sourceImage) {}
-CloudMask::CloudMask(const cv::Mat &imageData, const std::string &imageName) : GeoImage(imageData, imageName) {}
+CloudMask::CloudMask(const cv::Mat &imageData) : GeoImage(imageData) {
+    ImageData.setTo(0, ImageData < 20);
+    ImageData.setTo(255, ImageData > 200);
+}
+CloudMask::CloudMask(const cv::Mat &cloudData, const GeoImage &sourceImage) : GeoImage(cloudData), SourceGeoImage(&sourceImage) {
+    ImageData.setTo(0, ImageData < 20);
+    ImageData.setTo(255, ImageData > 200);
+}
+CloudMask::CloudMask(const cv::Mat &imageData, const std::string &imageName) : GeoImage(imageData, imageName) {
+    ImageData.setTo(0, ImageData < 20);
+    ImageData.setTo(255, ImageData > 200);
+}
 
 void CloudMask::Accept(IImageVisitor &visitor) const {
     visitor.Visit(*this);
@@ -55,7 +64,6 @@ void CloudMask::_ExtractCloudGroups() {
 
         // 收集该区域内的所有云像素
         std::vector<CloudPixel<unsigned char>> rowPixels;
-        rowPixels.reserve(w);
         int pixelNumber = 0;
         for (int row = y; row < y + h; ++row) {
             const int *labelPtr = labels.ptr<int>(row);
@@ -63,7 +71,7 @@ void CloudMask::_ExtractCloudGroups() {
 
             rowPixels.clear();
             for (int col = x; col < x + w; ++col) {
-                if (labelPtr[col] == label) {
+                if (labels.at<int>(row, col) == label) {
                     double lat = gt3 + row * gt5 + col * gt4;
                     double lon = gt0 + col * gt1 + row * gt2;
                     rowPixels.emplace_back(dataPtr[col], row, col, lat, lon, pixelNumber++);

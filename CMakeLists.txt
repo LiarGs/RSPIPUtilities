@@ -14,6 +14,7 @@ find_package(OpenMP REQUIRED)
 find_package(GDAL REQUIRED)
 include_directories(${OpenCV_INCLUDE_DIRS} include)
 include_directories(${GDAL_INCLUDE_DIRS})
+include_directories("D:/C++_Library/eigen-5.0.1")
 
 
 file(GLOB_RECURSE SOURCES "src/*.cpp")

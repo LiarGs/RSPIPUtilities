@@ -1,5 +1,7 @@
 ﻿#pragma once
-#include "Math/LinearSolver.h"
+#include "Math/LinearSystem/OpenCvSolver.h"
+#include "Math/LinearSystem/SparseMatrix.h"
+#include "Math/LinearSystem/SparseSolver.h"
 #include "RSPIP.h"
 #include "Util/SuperDebug.hpp"
 
@@ -100,6 +102,9 @@ static void _TestForReconstruct() {
     std::string maskImagePath = "E:/RSPIP/GuoShuai/IsoPhotoBasedReconstruction/data/Mask/";
     std::string maskImageName = "11_22_10_1563206400.jpg";
 
+    // std::string maskImagePath = "E:/RSPIP/GuoShuai/Resource/Temp/";
+    // std::string maskImageName = "Debug.jpg";
+
     auto targetImage = IO::GeoImageRead(targetImagePath + targetImageName);
 
     auto referImage = IO::GeoImageRead(referImagePath + referImageName);
@@ -116,17 +121,112 @@ static void _TestForReconstruct() {
 }
 
 static void _TestForLinearSolver() {
-    // 构造一个简单的方程组: 2x + y = 5, x + 3y = 10
-    // 解应该是 x=1, y=3
-    cv::Mat A = (cv::Mat_<double>(2, 2) << 2, 1, 1, 3);
-    cv::Mat B = (cv::Mat_<double>(2, 1) << 5, 10);
-    cv::Mat X;
+    using namespace Math::LinearSystem;
+    SuperDebug::Info("========== Test For Linear Solver ==========");
+    SuperDebug::Info("========== Test For SPD Matrix (CG Solver) ==========");
+    // Test Case: Solve 3x3 Symmetric Positive Definite Matrix using CG
+    // Matrix A:
+    // 4 1 1
+    // 1 5 2
+    // 1 2 6
+    // Expected Solution: x0 = 1.0, x1 = 2.0, x2 = 3.0
 
-    auto solver = Math::SolverFactory::CreateSolver(Math::SolverMethod::Cholesky);
+    SparseMatrix A_spd(3, 3);
+    cv::Mat B_spd = cv::Mat::zeros(3, 1, CV_64F);
+    cv::Mat X_spd = cv::Mat::zeros(3, 1, CV_64F);
 
-    if (solver->Solve(A, B, X)) {
-        SuperDebug::Info("Solution found: x={}, y={}", X.at<double>(0), X.at<double>(1));
+    // Setup B
+    B_spd.at<double>(0, 0) = 9.0;
+    B_spd.at<double>(1, 0) = 17.0;
+    B_spd.at<double>(2, 0) = 23.0;
+
+    // Setup A (Symmetric)
+    A_spd.AddTriplet(0, 0, 4.0);
+    A_spd.AddTriplet(0, 1, 1.0);
+    A_spd.AddTriplet(0, 2, 1.0);
+
+    A_spd.AddTriplet(1, 0, 1.0);
+    A_spd.AddTriplet(1, 1, 5.0);
+    A_spd.AddTriplet(1, 2, 2.0);
+
+    A_spd.AddTriplet(2, 0, 1.0);
+    A_spd.AddTriplet(2, 1, 2.0);
+    A_spd.AddTriplet(2, 2, 6.0);
+    A_spd.SetFromTriplets();
+
+    // Solve using CG
+    SparseSolver solver_spd(A_spd, B_spd, X_spd);
+    solver_spd.Config.Method = SolverMethod::CG;
+
+    if (solver_spd.Solve()) {
+        double spd_x0 = X_spd.at<double>(0, 0);
+        double spd_x1 = X_spd.at<double>(1, 0);
+        double spd_x2 = X_spd.at<double>(2, 0);
+        SuperDebug::Info("SPD Result: x0={}, x1={}, x2={}", spd_x0, spd_x1, spd_x2);
+
+        if (std::abs(spd_x0 - 1.0) < 1e-4 && std::abs(spd_x1 - 2.0) < 1e-4 && std::abs(spd_x2 - 3.0) < 1e-4) {
+            SuperDebug::Info("SPD Solver Test Passed!");
+        } else {
+            SuperDebug::Error("SPD Solver Test Failed!");
+        }
     } else {
-        SuperDebug::Error("Failed to solve linear system.");
+        SuperDebug::Error("SPD Solver Failed!");
+    }
+
+    SuperDebug::Info("========== Test For General Matrix (OpenCV Solver - LU) ==========");
+    // Test Case: Solve 3x3 Linear System
+    // 2x + y + z = 4
+    // x + 3y + 2z = 5
+    // x = 6
+    // Expected: x=6, y=15, z=-23
+
+    cv::Mat A_dense = (cv::Mat_<double>(3, 3) << 2, 1, 1, 1, 3, 2, 1, 0, 0);
+    cv::Mat B_dense = (cv::Mat_<double>(3, 1) << 4, 5, 6);
+    cv::Mat X_dense;
+
+    OpenCvSolver solver_lu(A_dense, B_dense, X_dense);
+    solver_lu.Config.Method = SolverMethod::LU;
+
+    if (solver_lu.Solve()) {
+        double x0 = X_dense.at<double>(0, 0);
+        double x1 = X_dense.at<double>(1, 0);
+        double x2 = X_dense.at<double>(2, 0);
+        SuperDebug::Info("LU Result: x0={}, x1={}, x2={}", x0, x1, x2);
+
+        if (std::abs(x0 - 6.0) < 1e-4 && std::abs(x1 - 15.0) < 1e-4 && std::abs(x2 + 23.0) < 1e-4) {
+            SuperDebug::Info("OpenCV LU Solver Test Passed!");
+        } else {
+            SuperDebug::Error("OpenCV LU Solver Test Failed!");
+        }
+    } else {
+        SuperDebug::Error("OpenCV LU Solver Failed!");
+    }
+
+    SuperDebug::Info("========== Test For Over-determined System (OpenCV Solver - SVD) ==========");
+    // Test Case: Least Squares Problem
+    // x + y = 2
+    // x - y = 0
+    // x = 3
+    // Least Squares Solution: x=5/3 (~1.6667), y=1.0
+
+    cv::Mat A_svd = (cv::Mat_<double>(3, 2) << 1, 1, 1, -1, 1, 0);
+    cv::Mat B_svd = (cv::Mat_<double>(3, 1) << 2, 0, 3);
+    cv::Mat X_svd;
+
+    OpenCvSolver solver_svd(A_svd, B_svd, X_svd);
+    solver_svd.Config.Method = SolverMethod::SVD;
+
+    if (solver_svd.Solve()) {
+        double x0 = X_svd.at<double>(0, 0);
+        double x1 = X_svd.at<double>(1, 0);
+        SuperDebug::Info("SVD Result: x0={}, x1={}", x0, x1);
+
+        if (std::abs(x0 - 5.0 / 3.0) < 1e-4 && std::abs(x1 - 1.0) < 1e-4) {
+            SuperDebug::Info("OpenCV SVD Solver Test Passed!");
+        } else {
+            SuperDebug::Error("OpenCV SVD Solver Test Failed!");
+        }
+    } else {
+        SuperDebug::Error("OpenCV SVD Solver Failed!");
     }
 }

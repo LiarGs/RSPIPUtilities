@@ -22,7 +22,7 @@ int Image::GetImageType() const {
     return ImageData.type();
 }
 
-bool Image::_IsOutOfBounds(int row, int col) const {
+bool Image::IsOutOfBounds(int row, int col) const {
     if (ImageData.empty()) {
         SuperDebug::Error("ImageData is empty.");
         throw std::runtime_error("ImageData is empty.");
@@ -35,8 +35,8 @@ bool Image::_IsOutOfBounds(int row, int col) const {
     return false;
 }
 
-bool Image::_IsOutOfBounds(int row, int col, int band) const {
-    if (_IsOutOfBounds(row, col)) {
+bool Image::IsOutOfBounds(int row, int col, int band) const {
+    if (IsOutOfBounds(row, col)) {
         return true;
     } else if (band <= 0 || band > GetBandCounts()) {
         SuperDebug::Error("Band index out of range: {} (valid range: 1-{})", band, GetBandCounts());

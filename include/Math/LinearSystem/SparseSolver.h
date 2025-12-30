@@ -11,6 +11,7 @@ class SparseSolver : public ILinearSolver {
 
   private:
     bool _ConjugateGradient() const;
+    bool SolveBiCGSTAB() const;
 
   private:
     const SparseMatrix &_A;

@@ -14,8 +14,6 @@ class LinearMatrixBase {
 
   protected:
     LinearMatrixBase() = default;
-    LinearMatrixBase(const LinearMatrixBase &) = default;
-    LinearMatrixBase(LinearMatrixBase &&) = default;
 };
 
 } // namespace RSPIP::Math::LinearSystem

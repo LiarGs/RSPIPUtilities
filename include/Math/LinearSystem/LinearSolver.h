@@ -14,7 +14,8 @@ enum class SolverMethod {
     QR,       // QR分解，适用于最小二乘问题
     Cholesky, // Cholesky分解，仅适用于对称正定矩阵
     CG,       // Conjugate Gradient法，适用于大型正定稀疏矩阵
-    Normal    // 正规方程法 (Normal Equations)
+    BiCGSTAB, // 稳定双共轭梯度法，适用于非对称稀疏矩阵
+    Normal,   // 正规方程法 (Normal Equations)
 };
 
 /**

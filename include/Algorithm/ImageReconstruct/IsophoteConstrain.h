@@ -16,12 +16,16 @@ class IsophoteConstrain : public ReconstructAlgorithmBase {
 
   private:
     void _ReconstructCloudGroup(const CloudGroup &cloudGroup);
-    std::tuple<Math::LinearSystem::SparseMatrix, cv::Mat, cv::Mat> _BuildLinearSystem(const CloudGroup &cloudGroup, int channelNum);
-    void _BuildLinearSystemRow(const CloudPixel<unsigned char> &pixel, int channelNum);
+    void _BuildLinearSystem(const CloudGroup &cloudGroup, int channelNum);
+    void _BuildLinearSystemRow(const CloudGroup &cloudGroup, const CloudPixel<unsigned char> &pixel, int channelNum);
 
   private:
     const Image &_ReconstructImage;
     Image _ReferImage;
     CloudMask _Mask;
+    // 这里采用数组分通道存储方程组是为了多线程
+    std::vector<Math::LinearSystem::SparseMatrix> _A;
+    std::vector<cv::Mat> _B;
+    std::vector<cv::Mat> _X;
 };
 } // namespace RSPIP::Algorithm::ReconstructAlgorithm
