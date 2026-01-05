@@ -1,6 +1,7 @@
 ﻿#pragma once
 #include "CloudPixel.h"
 #include "Util/SuperDebug.hpp"
+#include <algorithm>
 #include <map>
 #include <opencv2/core/types.hpp>
 
@@ -9,17 +10,23 @@ namespace RSPIP {
 struct CloudGroup {
   public:
     CloudPixel<unsigned char> GetCloudPixelByRowColumn(int row, int column) const {
-        if (CloudPixelMap.find(row) == CloudPixelMap.end()) {
-            Error("Wrong Row Index");
+        auto rowIt = CloudPixelMap.find(row);
+        if (rowIt == CloudPixelMap.end()) {
+            SuperDebug::Error("Wrong Row Index: {} x {}", row, column);
             throw std::runtime_error("Wrong Row Index");
         }
-        auto startColumn = CloudPixelMap.at(row)[0].Column;
-        if (column < startColumn || column >= startColumn + CloudPixelMap.at(row).size()) {
-            Error("Wrong Column Index");
-            throw std::runtime_error("Wrong Column Index");
+
+        const auto &rowPixels = rowIt->second;
+        auto it = std::lower_bound(rowPixels.begin(), rowPixels.end(), column, [](const CloudPixel<unsigned char> &pixel, int col) {
+            return pixel.Column < col;
+        });
+
+        if (it != rowPixels.end() && it->Column == column) {
+            return *it;
         }
 
-        return CloudPixelMap.at(row)[column - startColumn];
+        SuperDebug::Error("Pixel not found at: {} x {}", row, column);
+        throw std::runtime_error("Pixel not found");
     }
 
     int GetNumPixels() const {

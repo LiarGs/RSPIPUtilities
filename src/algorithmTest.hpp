@@ -94,16 +94,13 @@ static void _TestForEvaluate() {
 
 static void _TestForReconstruct() {
     std::string targetImagePath = "E:/RSPIP/GuoShuai/IsoPhotoBasedReconstruction/data/Original/";
-    std::string targetImageName = "11_22_10_1563206400.tiff";
+    std::string targetImageName = "152_2_3_1456502400.tiff";
 
     std::string referImagePath = "E:/RSPIP/GuoShuai/IsoPhotoBasedReconstruction/data/Refer/";
-    std::string referImageName = "11_22_10_1563206400.tiff";
+    std::string referImageName = "152_2_3_1456502400.tiff";
 
     std::string maskImagePath = "E:/RSPIP/GuoShuai/IsoPhotoBasedReconstruction/data/Mask/";
-    std::string maskImageName = "11_22_10_1563206400.jpg";
-
-    // std::string maskImagePath = "E:/RSPIP/GuoShuai/Resource/Temp/";
-    // std::string maskImageName = "Debug.jpg";
+    std::string maskImageName = "152_2_3_1456502400.jpg";
 
     auto targetImage = IO::GeoImageRead(targetImagePath + targetImageName);
 

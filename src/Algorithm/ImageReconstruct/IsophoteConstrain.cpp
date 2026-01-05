@@ -3,7 +3,6 @@
 #include "Math/LinearSystem/SparseSolver.h"
 #include "Util/General.h"
 #include "Util/SuperDebug.hpp"
-#include <Eigen/Sparse>
 #include <opencv2/imgproc.hpp>
 using namespace RSPIP::Math::LinearSystem;
 
@@ -38,43 +37,10 @@ void IsophoteConstrain::_ReconstructCloudGroup(const CloudGroup &cloudGroup) {
         _BuildLinearSystem(cloudGroup, channelNum);
         Info("LinearSystem in Channel {} Build Complete", channelNum);
 
-        // Eigen::SparseMatrix<double> testA(cloudGroup.GetNumPixels(), cloudGroup.GetNumPixels());
-        // Eigen::VectorXd testB(cloudGroup.GetNumPixels());
-        // Eigen::VectorXd testX(cloudGroup.GetNumPixels());
-
-        // std::vector<Eigen::Triplet<double>> testTriplets;
-        // auto temp = _A[channelNum - 1].Triplets();
-        // for (const auto &triplet : _A[channelNum - 1].Triplets()) {
-        //     testTriplets.emplace_back(triplet.Row, triplet.Col, triplet.Value);
-        // }
-        // testA.setFromTriplets(testTriplets.begin(), testTriplets.end());
-
-        // for (int i = 0; i < cloudGroup.GetNumPixels(); ++i) {
-        //     testB[i] = _B[channelNum - 1].at<double>(i, 0);
-        //     testX[i] = _X[channelNum - 1].at<double>(i, 0);
-        // }
-
-        // // 求解 testA
-        // Eigen::ConjugateGradient<Eigen::SparseMatrix<double>> solver;
-        // solver.setMaxIterations(10000);
-        // solver.setTolerance(1e-6);
-
-        // solver.compute(testA);
-        // // testX = solver.solve(testB);
-        // testX = solver.solveWithGuess(testB, testX);
-
-        // // 4. 查看计算结果
-        // std::cout << "# 迭代次数:     " << solver.iterations() << std::endl;
-        // std::cout << "# 预估误差(Estimated error): " << solver.error() << std::endl;
-
-        // for (int i = 0; i < cloudGroup.GetNumPixels(); ++i) {
-        //     _X[channelNum - 1].at<double>(i, 0) = testX[i];
-        // }
-
         auto solver = SparseSolver(_A[channelNum - 1], _B[channelNum - 1], _X[channelNum - 1]);
         solver.Config.Method = SolverMethod::CG;
         solver.Config.MaxIterations = 10000;
-        solver.Config.Epsilon = 10;
+        solver.Config.Epsilon = 1;
         solver.Solve();
 
         Info("LinearSystem in Channel {} Solve Complete", channelNum);

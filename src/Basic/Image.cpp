@@ -25,11 +25,8 @@ int Image::GetImageType() const {
 bool Image::IsOutOfBounds(int row, int col) const {
     if (ImageData.empty()) {
         SuperDebug::Error("ImageData is empty.");
-        throw std::runtime_error("ImageData is empty.");
         return true;
     } else if (row < 0 || row >= Height() || col < 0 || col >= Width()) {
-        SuperDebug::Error("Pixel position out of range: ({}, {})", row, col);
-        throw std::runtime_error("Pixel position out of range.");
         return true;
     }
     return false;
@@ -39,8 +36,6 @@ bool Image::IsOutOfBounds(int row, int col, int band) const {
     if (IsOutOfBounds(row, col)) {
         return true;
     } else if (band <= 0 || band > GetBandCounts()) {
-        SuperDebug::Error("Band index out of range: {} (valid range: 1-{})", band, GetBandCounts());
-        throw std::out_of_range("Band index out of range");
         return true;
     }
     return false;
