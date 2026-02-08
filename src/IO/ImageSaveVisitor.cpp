@@ -107,7 +107,7 @@ void ImageSaveVisitor::_SaveNonGeoImage(const Image &image) {
     }
     const cv::Mat &mergedImg = image.ImageData;
 
-    bool _Success = cv::imwrite(_Path + _Name, mergedImg);
+    _Success = cv::imwrite(_Path + _Name, mergedImg);
     if (!_Success) {
         SuperDebug::Error("Failed to write image: {}", _Path + _Name);
     } else {

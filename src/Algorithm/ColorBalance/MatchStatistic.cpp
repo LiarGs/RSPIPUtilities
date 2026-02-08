@@ -28,7 +28,7 @@ void MatchStatistics::Execute() {
     if (!_Mask.ImageData.empty()) {
         maskMat.setTo(0, _Mask.ImageData);
     } else {
-        Error("the Mask is Empty!");
+        Info("the Mask is Empty!");
     }
 
     std::vector<double> targetMeans(_TargetImage.GetBandCounts(), 0.0);

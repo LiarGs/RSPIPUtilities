@@ -1,6 +1,7 @@
 ﻿#pragma once
 #include <chrono>
 #include <format>
+#include <functional> // [新增]
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -40,9 +41,20 @@ enum class Level { Info,
                    Warn,
                    Error };
 
+// [新增] 定义日志回调函数类型：接收日志等级和格式化后的消息
+using LogCallback = std::function<void(Level, const std::string &)>;
+
+// [新增] 全局回调对象 (使用 inline 允许在头文件中定义全局变量)
+inline LogCallback _GlobalLogCallback = nullptr;
+
+// [新增] 设置回调函数的接口
+inline void SetLoggerCallback(LogCallback callback) {
+    _GlobalLogCallback = callback;
+}
+
 template <typename... Args>
 inline void log(Level level, std::string_view fmt, Args &&...args) {
-    std::string formatted = std::vformat(fmt, std::make_format_args(args...));
+    std::string content = std::vformat(fmt, std::make_format_args(args...));
 
     std::string level_str;
     const char *color = DebugColor::WHITE;
@@ -62,9 +74,17 @@ inline void log(Level level, std::string_view fmt, Args &&...args) {
         break;
     }
 
+    // 1. 原始逻辑：输出到控制台
     std::cout << color << "[" << current_time_string() << "] "
-              << "[" << level_str << "] " << formatted << DebugColor::RESET
+              << "[" << level_str << "] " << content << DebugColor::RESET
               << std::endl;
+
+    // 2. [新增] 逻辑：如果设置了回调，通知外部系统 (如 Qt)
+    if (_GlobalLogCallback) {
+        // 构造一个不带 ANSI 颜色码的字符串给 GUI
+        std::string guiMsg = std::format("[{}] [{}] {}", current_time_string(), level_str, content);
+        _GlobalLogCallback(level, guiMsg);
+    }
 }
 
 template <typename... Args>

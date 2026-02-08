@@ -6,12 +6,14 @@
 namespace RSPIP::Algorithm::MosaicAlgorithm {
 
 class MosaicAlgorithmBase : public IAlgorithm {
+  public:
+    virtual ~MosaicAlgorithmBase() = default;
+
   protected:
     MosaicAlgorithmBase() = default;
     explicit MosaicAlgorithmBase(const std::vector<GeoImage> &imageDatas);
     MosaicAlgorithmBase(const MosaicAlgorithmBase &) = default;
     MosaicAlgorithmBase(MosaicAlgorithmBase &&) = default;
-    virtual ~MosaicAlgorithmBase() = default;
 
     virtual void _PasteImageToMosaicResult(const GeoImage &imageData);
 
