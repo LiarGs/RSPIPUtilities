@@ -1,4 +1,4 @@
-﻿#include "Algorithm/ImageReconstruct/Simple.h"
+﻿#include "Algorithm/Reconstruct/Simple.h"
 
 namespace RSPIP::Algorithm::ReconstructAlgorithm {
 

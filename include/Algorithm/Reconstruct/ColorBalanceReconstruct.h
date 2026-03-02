@@ -1,12 +1,12 @@
 ﻿#pragma once
-#include "Algorithm/ImageReconstruct/ReconstructAlgorithmBase.h"
+#include "Algorithm/Reconstruct/ReconstructAlgorithmBase.h"
 #include "Basic/CloudMask.h"
 
 namespace RSPIP::Algorithm::ReconstructAlgorithm {
 
-class Simple : public ReconstructAlgorithmBase {
+class ColorBalanceReconstruct : public ReconstructAlgorithmBase {
   public:
-    Simple(const Image &reconstructImage, const Image &referImage, const CloudMask &maskImage);
+    ColorBalanceReconstruct(const Image &reconstructImage, const Image &referImage, const CloudMask &maskImage);
     void Execute() override;
 
   private:

@@ -3,7 +3,7 @@
 /// by YU Xiao Yu
 
 #pragma once
-#include "Algorithm/ImageReconstruct/ReconstructAlgorithmBase.h"
+#include "Algorithm/Reconstruct/ReconstructAlgorithmBase.h"
 #include "Basic/CloudMask.h"
 #include "Math/LinearSystem/SparseMatrix.h"
 

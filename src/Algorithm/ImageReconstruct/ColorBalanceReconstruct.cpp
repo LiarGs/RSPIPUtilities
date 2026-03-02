@@ -1,4 +1,4 @@
-﻿#include "Algorithm/ImageReconstruct/ColorBalanceReconstruct.h"
+﻿#include "Algorithm/Reconstruct/ColorBalanceReconstruct.h"
 #include "Algorithm/ColorBalance/MatchStatistic.h"
 
 namespace RSPIP::Algorithm::ReconstructAlgorithm {

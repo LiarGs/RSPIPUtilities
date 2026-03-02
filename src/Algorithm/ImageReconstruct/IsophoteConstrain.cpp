@@ -1,4 +1,4 @@
-﻿#include "Algorithm/ImageReconstruct/IsophoteConstrain.h"
+﻿#include "Algorithm/Reconstruct/IsophoteConstrain.h"
 #include "Algorithm/ColorBalance/MatchStatistic.h"
 #include "Math/LinearSystem/SparseSolver.h"
 #include "Util/General.h"

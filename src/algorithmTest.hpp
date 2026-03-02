@@ -47,7 +47,7 @@ static void _TestForGeoImageMosaic() {
 
     // auto mosaicAlgorithm = std::make_unique<MosaicAlgorithm::Simple>(imageDatas);
     // auto mosaicAlgorithm = std::make_unique<MosaicAlgorithm::ShowOverLap>(imageDatas);
-    auto mosaicAlgorithm = std::make_unique<MosaicAlgorithm::DynamicPatch>(imageDatas, cloudMasks);
+    auto mosaicAlgorithm = std::make_unique<MosaicAlgorithm::AdaptiveIsophotePatch>(imageDatas, cloudMasks);
 
     SuperDebug::ScopeTimer algorithmTimer("Algorithm Execution");
     mosaicAlgorithm->Execute();
