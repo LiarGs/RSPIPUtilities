@@ -39,8 +39,8 @@ void IsophoteConstrain::_ReconstructCloudGroup(const CloudGroup &cloudGroup) {
 
         auto solver = SparseSolver(_A[channelNum - 1], _B[channelNum - 1], _X[channelNum - 1]);
         solver.Config.Method = SolverMethod::CG;
-        solver.Config.MaxIterations = 10000;
-        solver.Config.Epsilon = 1;
+        solver.Config.MaxIterations = _MaxIterations;
+        solver.Config.Epsilon = _Epsilon;
         solver.Solve();
 
         Info("LinearSystem in Channel {} Solve Complete", channelNum);

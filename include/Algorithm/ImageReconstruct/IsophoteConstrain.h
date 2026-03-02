@@ -14,6 +14,14 @@ class IsophoteConstrain : public ReconstructAlgorithmBase {
     IsophoteConstrain(const Image &reconstructImage, const Image &referImage, const CloudMask &maskImage);
     void Execute() override;
 
+    void SetMaxIterations(int newMaxIterations) {
+        _MaxIterations = newMaxIterations;
+    }
+
+    void SetEpsilon(double newEpsilon) {
+        _Epsilon = newEpsilon;
+    }
+
   private:
     void _ReconstructCloudGroup(const CloudGroup &cloudGroup);
     void _BuildLinearSystem(const CloudGroup &cloudGroup, int channelNum);
@@ -27,5 +35,8 @@ class IsophoteConstrain : public ReconstructAlgorithmBase {
     std::vector<Math::LinearSystem::SparseMatrix> _A;
     std::vector<cv::Mat> _B;
     std::vector<cv::Mat> _X;
+
+    int _MaxIterations = 10000;
+    double _Epsilon = 1;
 };
 } // namespace RSPIP::Algorithm::ReconstructAlgorithm
