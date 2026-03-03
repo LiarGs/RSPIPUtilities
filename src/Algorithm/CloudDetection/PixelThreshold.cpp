@@ -4,11 +4,11 @@
 
 namespace RSPIP::Algorithm::CloudDetectionAlgorithm {
 
-PixelThreshold::PixelThreshold(const Image &imageData, unsigned char threshold)
-    : CloudDetectionAlgorithmBase(imageData), _Threshold(threshold) {}
+PixelThreshold::PixelThreshold(const Image &imageData)
+    : CloudDetectionAlgorithmBase(imageData) {}
 
-PixelThreshold::PixelThreshold(const GeoImage &imageData, unsigned char threshold)
-    : CloudDetectionAlgorithmBase(imageData), _Threshold(threshold) {}
+PixelThreshold::PixelThreshold(const GeoImage &imageData)
+    : CloudDetectionAlgorithmBase(imageData) {}
 
 void PixelThreshold::Execute() {
     if (_Image.ImageData.empty()) {

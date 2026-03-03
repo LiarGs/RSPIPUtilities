@@ -5,8 +5,8 @@ namespace RSPIP::Algorithm::CloudDetectionAlgorithm {
 
 class PixelThreshold : public CloudDetectionAlgorithmBase {
   public:
-    explicit PixelThreshold(const Image &imageData, unsigned char threshold = 240);
-    explicit PixelThreshold(const GeoImage &imageData, unsigned char threshold = 240);
+    explicit PixelThreshold(const Image &imageData);
+    explicit PixelThreshold(const GeoImage &imageData);
 
     void Execute() override;
 
@@ -15,7 +15,7 @@ class PixelThreshold : public CloudDetectionAlgorithmBase {
     }
 
   private:
-    unsigned char _Threshold;
+    unsigned char _Threshold = 240;
 };
 
 } // namespace RSPIP::Algorithm::CloudDetectionAlgorithm
