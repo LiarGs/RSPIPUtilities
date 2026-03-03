@@ -8,13 +8,13 @@
 using namespace RSPIP;
 using namespace Algorithm;
 
-auto GeoSaveImagePath = "E:/RSPIP/GuoShuai/Resource/Temp/";
+auto GeoSaveImagePath = "E:/RSPIP/Resource/Temp/";
 auto GeoSaveImageName = "OutputImage.tif";
 
 static void _TestForNormalImage() {
     // Test Normal Image Read/Show/Save
     auto normalImageName = "C:/Users/RSPIP/Pictures/Camera Roll/tempTest.png";
-    auto normalSaveImagePath = "E:/RSPIP/GuoShuai/Resource/Temp/";
+    auto normalSaveImagePath = "E:/RSPIP/Resource/Temp/";
     auto normalSaveImageName = "NormalImageOutput.png";
     auto normalImage = IO::NormalImageRead(normalImageName);
     Util::ShowImage(*normalImage);
@@ -23,8 +23,8 @@ static void _TestForNormalImage() {
 }
 
 static void _TestForGeoImageMosaic() {
-    auto TestImagePath = "E:/RSPIP/GuoShuai/Resource/DataWithSimuClouds/TifData/";
-    auto TestMaskImagePath = "E:/RSPIP/GuoShuai/Resource/DataWithSimuClouds/MaskDatas/";
+    auto TestImagePath = "E:/RSPIP/Resource/DataWithSimuClouds/TifData/";
+    auto TestMaskImagePath = "E:/RSPIP/Resource/DataWithSimuClouds/MaskDatas/";
     auto imageNames = Util::GetTifImagePathFromPath(TestImagePath);
     auto cloudMaskNames = Util::GetTifImagePathFromPath(TestMaskImagePath);
 
@@ -55,13 +55,13 @@ static void _TestForGeoImageMosaic() {
 }
 
 static void _TestForColorBalance() {
-    std::string targetImagePath = "E:/RSPIP/GuoShuai/Resource/IsoPhotoBasedReconstructionData/Refer/";
+    std::string targetImagePath = "E:/RSPIP/Resource/IsoPhotoBasedReconstructionData/Refer/";
     std::string targetImageName = "4_3_5_1204646400.tiff";
 
-    std::string referImagePath = "E:/RSPIP/GuoShuai/Resource/IsoPhotoBasedReconstructionData/Original/";
+    std::string referImagePath = "E:/RSPIP/Resource/IsoPhotoBasedReconstructionData/Original/";
     std::string referImageName = "4_3_5_1204646400.tiff";
 
-    std::string maskImagePath = "E:/RSPIP/GuoShuai/Resource/IsoPhotoBasedReconstructionData/Mask/";
+    std::string maskImagePath = "E:/RSPIP/Resource/IsoPhotoBasedReconstructionData/Mask/";
     std::string maskImageName = "4_3_5_1204646400.jpg";
 
     auto targetImage = IO::GeoImageRead(targetImagePath + targetImageName);
@@ -78,9 +78,9 @@ static void _TestForColorBalance() {
 }
 
 static void _TestForEvaluate() {
-    auto resultImagePath = "E:/RSPIP/GuoShuai/Resource/IsoPhotoBasedReconstructionData/Result/11_22_10_1563206400_cp/11_22_10_1563206400.tiff";
-    auto referenceImagePath = "E:/RSPIP/GuoShuai/Resource/IsoPhotoBasedReconstructionData/Refer/11_22_10_1563206400.tiff";
-    auto maskImagePath = "E:/RSPIP/GuoShuai/Resource/IsoPhotoBasedReconstructionData/Mask/11_22_10_1563206400.jpg";
+    auto resultImagePath = "E:/RSPIP/Resource/IsoPhotoBasedReconstructionData/Result/11_22_10_1563206400_cp/11_22_10_1563206400.tiff";
+    auto referenceImagePath = "E:/RSPIP/Resource/IsoPhotoBasedReconstructionData/Refer/11_22_10_1563206400.tiff";
+    auto maskImagePath = "E:/RSPIP/Resource/IsoPhotoBasedReconstructionData/Mask/11_22_10_1563206400.jpg";
 
     auto resultImage = IO::GeoImageRead(resultImagePath);
     auto referenceImage = IO::GeoImageRead(referenceImagePath);
@@ -93,13 +93,13 @@ static void _TestForEvaluate() {
 }
 
 static void _TestForReconstruct() {
-    std::string targetImagePath = "E:/RSPIP/GuoShuai/Resource/IsoPhotoBasedReconstructionData/Original/";
+    std::string targetImagePath = "E:/RSPIP/Resource/IsoPhotoBasedReconstructionData/Original/";
     std::string targetImageName = "152_2_3_1456502400.tiff";
 
-    std::string referImagePath = "E:/RSPIP/GuoShuai/Resource/IsoPhotoBasedReconstructionData/Refer/";
+    std::string referImagePath = "E:/RSPIP/Resource/IsoPhotoBasedReconstructionData/Refer/";
     std::string referImageName = "152_2_3_1456502400.tiff";
 
-    std::string maskImagePath = "E:/RSPIP/GuoShuai/Resource/IsoPhotoBasedReconstructionData/Mask/";
+    std::string maskImagePath = "E:/RSPIP/Resource/IsoPhotoBasedReconstructionData/Mask/";
     std::string maskImageName = "152_2_3_1456502400.jpg";
 
     auto targetImage = IO::GeoImageRead(targetImagePath + targetImageName);
@@ -112,6 +112,16 @@ static void _TestForReconstruct() {
     // auto algorithm = std::make_unique<ReconstructAlgorithm::ColorBalanceReconstruct>(*targetImage, *referImage, *maskImage);
     // auto algorithm = std::make_unique<ReconstructAlgorithm::IsophoteConstrain>(*targetImage, *referImage, *maskImage);
 
+    SuperDebug::ScopeTimer algorithmTimer("Algorithm Execution");
+    algorithm->Execute();
+    IO::SaveImage(algorithm->AlgorithmResult, GeoSaveImagePath, GeoSaveImageName);
+}
+
+static void _TestForCloudTest() {
+    auto testImagePath = "E:/RSPIP/Resource/DataWithSimuClouds/TifData/GF1B_PMS_E112.7_N23.0_20191207_L1A1227736448.tif";
+    auto testImage = IO::GeoImageRead(testImagePath);
+
+    auto algorithm = std::make_unique<Algorithm::CloudDetectionAlgorithm::PixelThreshold>(*testImage);
     SuperDebug::ScopeTimer algorithmTimer("Algorithm Execution");
     algorithm->Execute();
     IO::SaveImage(algorithm->AlgorithmResult, GeoSaveImagePath, GeoSaveImageName);

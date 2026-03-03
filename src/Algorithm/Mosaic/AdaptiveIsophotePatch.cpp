@@ -111,7 +111,7 @@ void AdaptiveIsophotePatch::_IsophoteReconstruct() {
     _FillReferMosaicWithCloudGroups(referMosaic);
 
     // DebugTest
-    // auto GeoSaveImagePath = "E:/RSPIP/GuoShuai/Resource/Temp/";
+    // auto GeoSaveImagePath = "E:/RSPIP/Resource/Temp/";
     // auto GeoSaveImageName = "ReferMosaic.tif";
     // IO::SaveImage(referMosaic, GeoSaveImagePath, GeoSaveImageName);
 
