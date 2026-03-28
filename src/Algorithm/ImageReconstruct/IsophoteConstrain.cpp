@@ -47,7 +47,7 @@ void IsophoteConstrain::_ReconstructCloudGroup(const CloudGroup &cloudGroup) {
 
         for (const auto &[_, rowPixels] : cloudGroup.CloudPixelMap) {
             for (const auto &pixel : rowPixels) {
-                auto pixelValue = (unsigned char)_X[channelNum - 1].at<double>(pixel.PixelNumber, 0);
+                auto pixelValue = cv::saturate_cast<unsigned char>(_X[channelNum - 1].at<double>(pixel.PixelNumber, 0));
                 AlgorithmResult.SetPixelValue(pixel.Row, pixel.Column, channelNum, pixelValue);
             }
         }

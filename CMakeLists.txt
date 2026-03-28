@@ -17,7 +17,7 @@ find_package(GDAL REQUIRED)
 
 # === 2. 收集源文件 ===
 # 递归查找 src 下所有的 cpp 文件
-file(GLOB_RECURSE ALL_SOURCES "src/*.cpp")
+file(GLOB_RECURSE ALL_SOURCES CONFIGURE_DEPENDS "src/*.cpp")
 
 # 定义 main.cpp 的路径 (用于排除)
 # 使用 get_filename_component 确保路径格式一致，防止排除失败
