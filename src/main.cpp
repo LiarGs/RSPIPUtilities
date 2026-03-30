@@ -15,7 +15,7 @@ int main(int argc, char *argv[]) {
 
     // _TestForReconstruct();
 
-    _TestForCloudTest();
+    // _TestForCloudTest();
 
     // _TestForLinearSolver();
 

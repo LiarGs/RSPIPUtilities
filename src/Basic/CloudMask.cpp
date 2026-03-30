@@ -32,6 +32,7 @@ void CloudMask::SetSourceImage(const GeoImage &sourceImage) {
     SourceGeoImage = &sourceImage;
     GeoTransform = sourceImage.GeoTransform;
     Projection = sourceImage.Projection;
+    ImageBounds = sourceImage.ImageBounds;
 }
 
 void CloudMask::_ExtractCloudGroups() {

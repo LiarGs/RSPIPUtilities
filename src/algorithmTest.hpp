@@ -45,9 +45,14 @@ static void _TestForGeoImageMosaic() {
 
     loadingTimer.Stop();
 
-    // auto mosaicAlgorithm = std::make_unique<MosaicAlgorithm::Simple>(imageDatas);
-    // auto mosaicAlgorithm = std::make_unique<MosaicAlgorithm::ShowOverLap>(imageDatas);
-    auto mosaicAlgorithm = std::make_unique<MosaicAlgorithm::AdaptiveIsophotePatch>(imageDatas, cloudMasks);
+    auto preprocessAlgorithm = std::make_unique<PreprocessAlgorithm::GeoCoordinateAlign>(imageDatas, cloudMasks);
+    SuperDebug::ScopeTimer preprocessTimer("Preprocess Execution");
+    preprocessAlgorithm->Execute();
+    preprocessTimer.Stop();
+
+    // auto mosaicAlgorithm = std::make_unique<MosaicAlgorithm::Simple>(preprocessAlgorithm->AlignedImages);
+    // auto mosaicAlgorithm = std::make_unique<MosaicAlgorithm::ShowOverLap>(preprocessAlgorithm->AlignedImages);
+    auto mosaicAlgorithm = std::make_unique<MosaicAlgorithm::AdaptiveIsophotePatch>(preprocessAlgorithm->AlignedImages, preprocessAlgorithm->AlignedCloudMasks);
 
     SuperDebug::ScopeTimer algorithmTimer("Algorithm Execution");
     mosaicAlgorithm->Execute();

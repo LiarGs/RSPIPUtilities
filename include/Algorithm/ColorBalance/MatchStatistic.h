@@ -1,6 +1,6 @@
 ﻿#pragma once
 #include "Algorithm/ColorBalance/ColorBalanceAlgorithmBase.h"
-#include "Basic/Image.h"
+#include "Basic/GeoImage.h"
 
 namespace RSPIP::Algorithm::ColorBalanceAlgorithm {
 
@@ -11,7 +11,7 @@ class MatchStatistics : public ColorBalanceAlgorithmBase {
     void Execute() override;
 
   public:
-    Image AlgorithmResult;
+    GeoImage AlgorithmResult;
 
   private:
     const Image &_Mask;
