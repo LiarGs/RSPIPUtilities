@@ -3,6 +3,34 @@
 #include "Util/General.h"
 #include "Util/SortImage.hpp"
 #include "Util/SuperDebug.hpp"
+#include <numeric>
+
+namespace {
+
+void SortImageMaskPairsByLongitude(std::vector<RSPIP::GeoImage> &images, std::vector<RSPIP::CloudMask> &cloudMasks) {
+    std::vector<size_t> sortedIndices(images.size());
+    std::iota(sortedIndices.begin(), sortedIndices.end(), 0);
+
+    std::sort(sortedIndices.begin(), sortedIndices.end(),
+              [&](size_t leftIndex, size_t rightIndex) {
+                  return images[leftIndex].GetLongitude(0, 0) < images[rightIndex].GetLongitude(0, 0);
+              });
+
+    std::vector<RSPIP::GeoImage> sortedImages;
+    std::vector<RSPIP::CloudMask> sortedMasks;
+    sortedImages.reserve(images.size());
+    sortedMasks.reserve(cloudMasks.size());
+
+    for (const auto sortedIndex : sortedIndices) {
+        sortedImages.emplace_back(images[sortedIndex]);
+        sortedMasks.emplace_back(cloudMasks[sortedIndex]);
+    }
+
+    images = std::move(sortedImages);
+    cloudMasks = std::move(sortedMasks);
+}
+
+} // namespace
 
 namespace RSPIP::Algorithm::MosaicAlgorithm {
 
@@ -13,14 +41,29 @@ DynamicPatch::DynamicPatch(const std::vector<GeoImage> &imageDatas, const std::v
       _CurrentProcessImageIndex(0) {}
 
 void DynamicPatch::Execute() {
-    RSPIP::Util::SortImagesByLongitude(_ImageDatas);
-    RSPIP::Util::SortImagesByLongitude(_CloudMasks);
-    for (size_t index = 0; index < _ImageDatas.size(); ++index) {
-        _CloudMasks[index].Init();
-        _CloudMasks[index].SetSourceImage(_ImageDatas[index]);
+    SuperDebug::Info("Mosaic Image Size: {} x {}", AlgorithmResult.Height(), AlgorithmResult.Width());
+
+    if (_ImageDatas.empty()) {
+        SuperDebug::Warn("DynamicPatch received no input images.");
+        SuperDebug::Info("Mosaic Completed.");
+        return;
     }
 
-    SuperDebug::Info("Mosaic Image Size: {} x {}", AlgorithmResult.Height(), AlgorithmResult.Width());
+    if (_CloudMasks.empty() || _CloudMasks.size() != _ImageDatas.size()) {
+        SuperDebug::Error("DynamicPatch requires cloud masks with the same count as input images.");
+        SuperDebug::Error("Current behavior fallback: perform plain geographic mosaic without dynamic patch filling.");
+        for (const auto &imageData : _ImageDatas) {
+            _PasteImageToMosaicResult(imageData);
+        }
+        SuperDebug::Info("Mosaic Completed.");
+        return;
+    }
+
+    SortImageMaskPairsByLongitude(_ImageDatas, _CloudMasks);
+    for (size_t index = 0; index < _ImageDatas.size(); ++index) {
+        _CloudMasks[index].SetSourceImage(_ImageDatas[index]);
+        _CloudMasks[index].Init();
+    }
 
     for (size_t currentImageIndex = 0; currentImageIndex < _ImageDatas.size(); ++currentImageIndex) {
         _CurrentProcessImageIndex = currentImageIndex;
@@ -37,7 +80,8 @@ void DynamicPatch::_PasteImageToMosaicResult(const GeoImage &imageData) {
 
     // Info("Pasting Image: {} Size: {} x {}", imageData.ImageName, rows, columns);
 
-#pragma omp parallel for
+    // Temporarily forced to single-thread execution for crash isolation.
+    // This helps verify whether DynamicPatch crashes are caused by concurrent writes.
     for (int row = 0; row < rows; ++row) {
         for (int col = 0; col < columns; ++col) {
 
@@ -62,9 +106,15 @@ void DynamicPatch::_PasteImageToMosaicResult(const GeoImage &imageData) {
 }
 
 void DynamicPatch::_ProcessWithClouds() {
+    if (_CurrentProcessImageIndex >= _CloudMasks.size()) {
+        SuperDebug::Warn("Skip cloud processing for image index {} because no paired cloud mask is available.", _CurrentProcessImageIndex);
+        return;
+    }
+
     const auto &cloudMask = _CloudMasks[_CurrentProcessImageIndex];
 
-#pragma omp parallel for
+    // Temporarily forced to single-thread execution for crash isolation.
+    // This helps verify whether DynamicPatch crashes are caused by concurrent writes.
     for (int cloudGroupIndex = 0; cloudGroupIndex < cloudMask.CloudGroups.size(); ++cloudGroupIndex) {
         // Info("Processing Cloud Group: {}/{}", cloudGroupIndex + 1, cloudMask.CloudGroups.size());
 
@@ -97,6 +147,9 @@ void DynamicPatch::_ProcessWithCloudGroup(const CloudGroup &cloudGroup) {
 
             for (const auto &pixel : bestPatch) {
                 auto [mosaicResultPixelRow, mosaicResultPixelCol] = AlgorithmResult.LatLonToRC(pixel.Latitude, pixel.Longitude);
+                if (mosaicResultPixelRow == -1 || mosaicResultPixelCol == -1) {
+                    continue;
+                }
                 AlgorithmResult.SetPixelValue(mosaicResultPixelRow, mosaicResultPixelCol, pixel.Value);
             }
         }
@@ -126,7 +179,12 @@ std::vector<GeoPixel<cv::Vec3b>> DynamicPatch::_OptimalPatchSelection(const std:
             }
 
             auto [otherImagePixelRow, otherImagePixelCol] = otherImage.LatLonToRC(nextCloudPixel.Latitude, nextCloudPixel.Longitude);
-            if (otherImagePixelRow == 0) {
+            if (otherImage.IsOutOfBounds(otherImagePixelRow, otherImagePixelCol) || otherImagePixelRow <= 0) {
+                break;
+            }
+
+            auto [mosaicResultPixelRow, mosaicResultPixelCol] = AlgorithmResult.LatLonToRC(nextCloudPixel.Latitude, nextCloudPixel.Longitude);
+            if (AlgorithmResult.IsOutOfBounds(mosaicResultPixelRow, mosaicResultPixelCol) || mosaicResultPixelRow <= 0) {
                 break;
             }
 
@@ -137,7 +195,6 @@ std::vector<GeoPixel<cv::Vec3b>> DynamicPatch::_OptimalPatchSelection(const std:
 
             _otherImagePreviousLine.emplace_back(Util::BGRToGray(previousLinepixelValue));
 
-            auto [mosaicResultPixelRow, mosaicResultPixelCol] = AlgorithmResult.LatLonToRC(nextCloudPixel.Latitude, nextCloudPixel.Longitude);
             _mosaicResultPreviousLine.emplace_back(Util::BGRToGray(AlgorithmResult.GetPixelValue<cv::Vec3b>(mosaicResultPixelRow - 1, mosaicResultPixelCol)));
 
             auto currentPatchPixelValue = otherImage.GetPixelValue<cv::Vec3b>(otherImagePixelRow, otherImagePixelCol);
