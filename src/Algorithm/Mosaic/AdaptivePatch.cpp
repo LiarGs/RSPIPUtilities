@@ -343,7 +343,7 @@ AdaptivePatch::ExpandPassReport AdaptivePatch::_ExpandDirection(ExpandDirection 
             const auto copyEnd = std::chrono::steady_clock::now();
             report.PatchCopyMs += _ElapsedMilliseconds(copyStart, copyEnd);
 
-            report.WrittenPixelCount += candidate.Length;
+            report.WrittenPixelCount += candidate.Length * _StripWidth;
             ++report.SuccessStripCount;
             processedLength += candidate.Length;
         }
@@ -455,54 +455,64 @@ AdaptivePatch::CandidatePatch AdaptivePatch::_EvaluateCandidate(size_t inputInde
     const int imageRows = input.Image.Height();
     const int imageColumns = input.Image.Width();
 
-    int innerLocalRow = boundaryRow - input.RowOffset;
-    int innerLocalColumn = boundaryColumn - input.ColumnOffset;
-    int outerLocalRow = innerLocalRow + normalRow;
-    int outerLocalColumn = innerLocalColumn + normalColumn;
-    int innerMosaicRow = boundaryRow;
-    int innerMosaicColumn = boundaryColumn;
-
     double sumMosaic = 0.0;
     double sumInput = 0.0;
     double sumMosaicSq = 0.0;
     double sumInputSq = 0.0;
     double sumCross = 0.0;
     size_t sampleCount = 0;
+    int validLength = 0;
+
+    int currentBoundaryRow = boundaryRow;
+    int currentBoundaryColumn = boundaryColumn;
 
     for (int step = 0; step < maxLength; ++step) {
-        if (innerLocalRow < 0 || innerLocalRow >= imageRows || innerLocalColumn < 0 || innerLocalColumn >= imageColumns ||
-            outerLocalRow < 0 || outerLocalRow >= imageRows || outerLocalColumn < 0 || outerLocalColumn >= imageColumns) {
+        bool stepValid = true;
+        for (int widthOffset = 0; widthOffset < _StripWidth; ++widthOffset) {
+            const int mosaicInnerRow = currentBoundaryRow - normalRow * widthOffset;
+            const int mosaicInnerColumn = currentBoundaryColumn - normalColumn * widthOffset;
+            const int inputInnerRow = mosaicInnerRow - input.RowOffset;
+            const int inputInnerColumn = mosaicInnerColumn - input.ColumnOffset;
+            const int mosaicOuterRow = currentBoundaryRow + normalRow * (widthOffset + 1);
+            const int mosaicOuterColumn = currentBoundaryColumn + normalColumn * (widthOffset + 1);
+            const int inputOuterRow = currentBoundaryRow + normalRow * (widthOffset + 1) - input.RowOffset;
+            const int inputOuterColumn = currentBoundaryColumn + normalColumn * (widthOffset + 1) - input.ColumnOffset;
+
+            if (mosaicInnerRow < 0 || mosaicInnerRow >= AlgorithmResult.Height() || mosaicInnerColumn < 0 || mosaicInnerColumn >= AlgorithmResult.Width() ||
+                mosaicOuterRow < 0 || mosaicOuterRow >= AlgorithmResult.Height() || mosaicOuterColumn < 0 || mosaicOuterColumn >= AlgorithmResult.Width() ||
+                inputInnerRow < 0 || inputInnerRow >= imageRows || inputInnerColumn < 0 || inputInnerColumn >= imageColumns ||
+                inputOuterRow < 0 || inputOuterRow >= imageRows || inputOuterColumn < 0 || inputOuterColumn >= imageColumns ||
+                !_IsFilled(mosaicInnerRow, mosaicInnerColumn) ||
+                input.ValidMask.at<unsigned char>(inputInnerRow, inputInnerColumn) == 0 ||
+                input.ValidMask.at<unsigned char>(inputOuterRow, inputOuterColumn) == 0) {
+                stepValid = false;
+                break;
+            }
+
+            const double mosaicGray = static_cast<double>(_ResultGray.at<unsigned char>(mosaicInnerRow, mosaicInnerColumn));
+            const double inputGray = static_cast<double>(input.GrayImage.at<unsigned char>(inputInnerRow, inputInnerColumn));
+            sumMosaic += mosaicGray;
+            sumInput += inputGray;
+            sumMosaicSq += mosaicGray * mosaicGray;
+            sumInputSq += inputGray * inputGray;
+            sumCross += mosaicGray * inputGray;
+            ++sampleCount;
+        }
+
+        if (!stepValid) {
             break;
         }
 
-        if (input.ValidMask.at<unsigned char>(innerLocalRow, innerLocalColumn) == 0 ||
-            input.ValidMask.at<unsigned char>(outerLocalRow, outerLocalColumn) == 0) {
-            break;
-        }
-
-        const double mosaicGray = static_cast<double>(_ResultGray.at<unsigned char>(innerMosaicRow, innerMosaicColumn));
-        const double inputGray = static_cast<double>(input.GrayImage.at<unsigned char>(innerLocalRow, innerLocalColumn));
-
-        sumMosaic += mosaicGray;
-        sumInput += inputGray;
-        sumMosaicSq += mosaicGray * mosaicGray;
-        sumInputSq += inputGray * inputGray;
-        sumCross += mosaicGray * inputGray;
-        ++sampleCount;
-
-        innerLocalRow += tangentRow;
-        innerLocalColumn += tangentColumn;
-        outerLocalRow += tangentRow;
-        outerLocalColumn += tangentColumn;
-        innerMosaicRow += tangentRow;
-        innerMosaicColumn += tangentColumn;
+        ++validLength;
+        currentBoundaryRow += tangentRow;
+        currentBoundaryColumn += tangentColumn;
     }
 
-    if (sampleCount == 0) {
+    if (validLength == 0 || sampleCount == 0) {
         return candidate;
     }
 
-    candidate.Length = static_cast<int>(sampleCount);
+    candidate.Length = validLength;
     candidate.Correlation = _ComputePearsonCorrelation(sampleCount, sumMosaic, sumInput, sumMosaicSq, sumInputSq, sumCross);
     candidate.IsValid = true;
     return candidate;
@@ -514,27 +524,29 @@ void AdaptivePatch::_CopyPatchToResult(const InputBundle &input, ExpandDirection
     const int imageRows = input.Image.Height();
     const int imageColumns = input.Image.Width();
 
-    int targetMosaicRow = boundaryRow + normalRow;
-    int targetMosaicColumn = boundaryColumn + normalColumn;
-    int localRow = targetMosaicRow - input.RowOffset;
-    int localColumn = targetMosaicColumn - input.ColumnOffset;
+    int currentBoundaryRow = boundaryRow;
+    int currentBoundaryColumn = boundaryColumn;
 
     for (int step = 0; step < length; ++step) {
-        if (localRow < 0 || localRow >= imageRows || localColumn < 0 || localColumn >= imageColumns) {
-            break;
+        for (int widthOffset = 1; widthOffset <= _StripWidth; ++widthOffset) {
+            const int targetMosaicRow = currentBoundaryRow + normalRow * widthOffset;
+            const int targetMosaicColumn = currentBoundaryColumn + normalColumn * widthOffset;
+            const int localRow = targetMosaicRow - input.RowOffset;
+            const int localColumn = targetMosaicColumn - input.ColumnOffset;
+            if (localRow < 0 || localRow >= imageRows || localColumn < 0 || localColumn >= imageColumns) {
+                return;
+            }
+
+            _SetFilledPixel(
+                targetMosaicRow,
+                targetMosaicColumn,
+                input.Image.GetPixelValue<cv::Vec3b>(localRow, localColumn),
+                input.GrayImage.at<unsigned char>(localRow, localColumn),
+                static_cast<int>(ownerInputIndex));
         }
 
-        _SetFilledPixel(
-            targetMosaicRow,
-            targetMosaicColumn,
-            input.Image.GetPixelValue<cv::Vec3b>(localRow, localColumn),
-            input.GrayImage.at<unsigned char>(localRow, localColumn),
-            static_cast<int>(ownerInputIndex));
-
-        targetMosaicRow += tangentRow;
-        targetMosaicColumn += tangentColumn;
-        localRow += tangentRow;
-        localColumn += tangentColumn;
+        currentBoundaryRow += tangentRow;
+        currentBoundaryColumn += tangentColumn;
     }
 }
 

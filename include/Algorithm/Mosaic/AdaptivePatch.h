@@ -9,6 +9,10 @@ class AdaptivePatch : public MosaicAlgorithmBase {
   public:
     AdaptivePatch(const std::vector<GeoImage> &imageDatas, const std::vector<CloudMask> &cloudMasks);
 
+    void SetStripWidth(int newStripWidth) {
+        _StripWidth = newStripWidth < 1 ? 1 : newStripWidth;
+    }
+
     void Execute() override;
 
   private:
@@ -95,6 +99,7 @@ class AdaptivePatch : public MosaicAlgorithmBase {
     int _FilledPixelCount = 0;
     long long _LegacyGeoMapCallCount = 0;
     bool _HasCompleteMaskSet = false;
+    int _StripWidth = 1;
 };
 
 } // namespace RSPIP::Algorithm::MosaicAlgorithm
