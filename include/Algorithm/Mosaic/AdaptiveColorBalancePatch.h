@@ -10,6 +10,10 @@ class AdaptiveColorBalancePatch : public MosaicAlgorithmBase {
   public:
     AdaptiveColorBalancePatch(const std::vector<GeoImage> &imageDatas, const std::vector<CloudMask> &cloudMasks);
 
+    void SetStripWidth(int newStripWidth) {
+        _StripWidth = newStripWidth < 1 ? 1 : newStripWidth;
+    }
+
     void Execute() override;
 
   private:
@@ -119,6 +123,7 @@ class AdaptiveColorBalancePatch : public MosaicAlgorithmBase {
     size_t _GlobalValidPixelCount = 0;
     std::array<double, 3> _GlobalValidMeans = {0.0, 0.0, 0.0};
     std::array<double, 3> _GlobalValidStdDevs = {0.0, 0.0, 0.0};
+    int _StripWidth = 1;
 };
 
 } // namespace RSPIP::Algorithm::MosaicAlgorithm

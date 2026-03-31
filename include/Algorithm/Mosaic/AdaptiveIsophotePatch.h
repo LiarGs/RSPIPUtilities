@@ -10,6 +10,10 @@ class AdaptiveIsophotePatch : public MosaicAlgorithmBase {
   public:
     AdaptiveIsophotePatch(const std::vector<GeoImage> &imageDatas, const std::vector<CloudMask> &cloudMasks);
 
+    void SetStripWidth(int newStripWidth) {
+        _StripWidth = newStripWidth < 1 ? 1 : newStripWidth;
+    }
+
     void SetMaxIterations(int newMaxIterations) {
         _MaxIterations = newMaxIterations;
     }
@@ -132,6 +136,7 @@ class AdaptiveIsophotePatch : public MosaicAlgorithmBase {
     std::array<double, 3> _GlobalValidStdDevs = {0.0, 0.0, 0.0};
     int _MaxIterations = 10000;
     double _Epsilon = 1;
+    int _StripWidth = 1;
 };
 
 } // namespace RSPIP::Algorithm::MosaicAlgorithm
