@@ -41,23 +41,25 @@ enum class Level { Info,
                    Warn,
                    Error };
 
-// [新增] 定义日志回调函数类型：接收日志等级和格式化后的消息
-using LogCallback = std::function<void(Level, const std::string &)>;
+enum class LogUpdateMode { Append,
+                           ReplaceLast };
+
+// [新增] 定义日志回调函数类型：接收日志等级、格式化后的消息以及更新方式
+using LogCallback = std::function<void(Level, const std::string &, LogUpdateMode)>;
 
 // [新增] 全局回调对象 (使用 inline 允许在头文件中定义全局变量)
 inline LogCallback _GlobalLogCallback = nullptr;
+inline bool _HasInlineLog = false;
+inline size_t _LastInlineLogLength = 0;
 
 // [新增] 设置回调函数的接口
 inline void SetLoggerCallback(LogCallback callback) {
     _GlobalLogCallback = callback;
 }
 
-template <typename... Args>
-inline void log(Level level, std::string_view fmt, Args &&...args) {
-    std::string content = std::vformat(fmt, std::make_format_args(args...));
-
-    std::string level_str;
-    const char *color = DebugColor::WHITE;
+inline void _ResolveLevelStyle(Level level, std::string &level_str, const char *&color) {
+    level_str.clear();
+    color = DebugColor::WHITE;
 
     switch (level) {
     case Level::Info:
@@ -73,6 +75,32 @@ inline void log(Level level, std::string_view fmt, Args &&...args) {
         color = DebugColor::RED;
         break;
     }
+}
+
+inline void _DispatchGuiLog(Level level, const std::string &level_str, const std::string &content,
+                            LogUpdateMode updateMode = LogUpdateMode::Append) {
+    if (_GlobalLogCallback) {
+        std::string guiMsg = std::format("[{}] [{}] {}", current_time_string(), level_str, content);
+        _GlobalLogCallback(level, guiMsg, updateMode);
+    }
+}
+
+inline void _FinishInlineLog() {
+    if (_HasInlineLog) {
+        std::cout << std::endl;
+        _HasInlineLog = false;
+        _LastInlineLogLength = 0;
+    }
+}
+
+template <typename... Args>
+inline void log(Level level, std::string_view fmt, Args &&...args) {
+    std::string content = std::vformat(fmt, std::make_format_args(args...));
+
+    std::string level_str;
+    [[maybe_unused]] const char *color = DebugColor::WHITE;
+    _ResolveLevelStyle(level, level_str, color);
+    _FinishInlineLog();
 
     // 1. 原始逻辑：输出到控制台
     std::cout << color << "[" << current_time_string() << "] "
@@ -80,16 +108,38 @@ inline void log(Level level, std::string_view fmt, Args &&...args) {
               << std::endl;
 
     // 2. [新增] 逻辑：如果设置了回调，通知外部系统 (如 Qt)
-    if (_GlobalLogCallback) {
-        // 构造一个不带 ANSI 颜色码的字符串给 GUI
-        std::string guiMsg = std::format("[{}] [{}] {}", current_time_string(), level_str, content);
-        _GlobalLogCallback(level, guiMsg);
+    _DispatchGuiLog(level, level_str, content);
+}
+
+template <typename... Args>
+inline void inline_log(Level level, std::string_view fmt, Args &&...args) {
+    std::string content = std::vformat(fmt, std::make_format_args(args...));
+
+    std::string level_str;
+    const char *color = DebugColor::WHITE;
+    _ResolveLevelStyle(level, level_str, color);
+
+    const std::string rendered = std::format("[{}] [{}] {}", current_time_string(), level_str, content);
+    std::cout << '\r' << rendered;
+    if (_LastInlineLogLength > rendered.size()) {
+        std::cout << std::string(_LastInlineLogLength - rendered.size(), ' ');
     }
+    std::cout.flush();
+
+    _DispatchGuiLog(level, level_str, content, LogUpdateMode::ReplaceLast);
+
+    _HasInlineLog = true;
+    _LastInlineLogLength = rendered.size();
 }
 
 template <typename... Args>
 inline void Info(std::string_view fmt, Args &&...args) {
     log(Level::Info, fmt, std::forward<Args>(args)...);
+}
+
+template <typename... Args>
+inline void InfoInline(std::string_view fmt, Args &&...args) {
+    inline_log(Level::Info, fmt, std::forward<Args>(args)...);
 }
 
 template <typename... Args>

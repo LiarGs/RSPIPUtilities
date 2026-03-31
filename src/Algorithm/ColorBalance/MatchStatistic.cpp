@@ -11,7 +11,7 @@ MatchStatistics::MatchStatistics(const Image &targetImage, const Image &referenc
     : ColorBalanceAlgorithmBase(targetImage, referenceImage), _Mask(mask) {}
 
 void MatchStatistics::Execute() {
-    Info("Executing MatchStatistics ColorBalance...");
+    // Info("Executing MatchStatistics ColorBalance...");
 
     if (_TargetImage.ImageData.empty()) {
         Error("Target Image is Empty!");
@@ -73,7 +73,7 @@ void MatchStatistics::Execute() {
         AlgorithmResult.NonData = targetGeoImage->NonData;
     }
 
-    Info("ColorBalance Completed.");
+    // Info("ColorBalance Completed.");
 }
 
 } // namespace RSPIP::Algorithm::ColorBalanceAlgorithm

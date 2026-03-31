@@ -1,3 +1,4 @@
+#include "Algorithm/Mosaic/AdaptiveColorBalancePatch.h"
 #include "Algorithm/Mosaic/AdaptivePatch.h"
 #include "Algorithm/Mosaic/AdaptiveIsophotePatch.h"
 #include "Algorithm/Mosaic/DynamicPatch.h"

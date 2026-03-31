@@ -35,7 +35,7 @@ void IsophoteConstrain::_ReconstructCloudGroup(const CloudGroup &cloudGroup) {
     for (int channelNum = 1; channelNum <= _ReconstructImage.GetBandCounts(); ++channelNum) {
 
         _BuildLinearSystem(cloudGroup, channelNum);
-        Info("LinearSystem in Channel {} Build Complete", channelNum);
+        // Info("LinearSystem in Channel {} Build Complete", channelNum);
 
         auto solver = SparseSolver(_A[channelNum - 1], _B[channelNum - 1], _X[channelNum - 1]);
         solver.Config.Method = SolverMethod::CG;
@@ -43,7 +43,7 @@ void IsophoteConstrain::_ReconstructCloudGroup(const CloudGroup &cloudGroup) {
         solver.Config.Epsilon = _Epsilon;
         solver.Solve();
 
-        Info("LinearSystem in Channel {} Solve Complete", channelNum);
+        // Info("LinearSystem in Channel {} Solve Complete", channelNum);
 
         for (const auto &[_, rowPixels] : cloudGroup.CloudPixelMap) {
             for (const auto &pixel : rowPixels) {

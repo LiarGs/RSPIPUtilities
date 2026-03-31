@@ -80,16 +80,17 @@ class AdaptivePatch : public MosaicAlgorithmBase {
 
     CandidatePatch _SelectBestCandidate(ExpandDirection direction, int boundaryRow, int boundaryColumn, int maxLength) const;
     CandidatePatch _EvaluateCandidate(size_t inputIndex, const InputBundle &input, ExpandDirection direction, int boundaryRow, int boundaryColumn, int maxLength) const;
-    void _CopyPatchToResult(const InputBundle &input, ExpandDirection direction, int boundaryRow, int boundaryColumn, int length);
+    void _CopyPatchToResult(const InputBundle &input, ExpandDirection direction, int boundaryRow, int boundaryColumn, int length, size_t ownerInputIndex);
 
     std::pair<int, int> _GetNormalOffset(ExpandDirection direction) const;
     std::pair<int, int> _GetTangentOffset(ExpandDirection direction) const;
     const char *_GetDirectionName(ExpandDirection direction) const;
-    void _SetFilledPixel(int mosaicRow, int mosaicColumn, const cv::Vec3b &pixelValue, unsigned char grayValue);
+    void _SetFilledPixel(int mosaicRow, int mosaicColumn, const cv::Vec3b &pixelValue, unsigned char grayValue, int ownerInputIndex);
 
   private:
     std::vector<InputBundle> _Inputs;
     cv::Mat _FilledMask;
+    cv::Mat _OwnerMap;
     cv::Mat _ResultGray;
     int _FilledPixelCount = 0;
     long long _LegacyGeoMapCallCount = 0;

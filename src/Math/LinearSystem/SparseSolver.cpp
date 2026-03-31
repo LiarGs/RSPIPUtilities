@@ -42,7 +42,7 @@ bool SparseSolver::_ConjugateGradient() const {
     double rsold = r.dot(r); // r^T * r
     for (int i = 0; i < Config.MaxIterations; ++i) {
         if (std::sqrt(rsold) < Config.Epsilon) {
-            SuperDebug::Info("CG Converged at iteration {}", i);
+            // SuperDebug::Info("CG Converged at iteration {}", i);
             return true;
         }
 
@@ -54,7 +54,7 @@ bool SparseSolver::_ConjugateGradient() const {
 
         // 额外的收敛检查
         if (std::sqrt(rsnew) < Config.Epsilon) {
-            SuperDebug::Info("CG Converged at iteration {}. Residual: {}", i + 1, std::sqrt(rsnew));
+            // SuperDebug::Info("CG Converged at iteration {}. Residual: {}", i + 1, std::sqrt(rsnew));
             return true;
         }
 

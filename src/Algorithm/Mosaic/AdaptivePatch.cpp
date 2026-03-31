@@ -73,6 +73,7 @@ AdaptivePatch::AdaptivePatch(const std::vector<GeoImage> &imageDatas, const std:
     : MosaicAlgorithmBase(imageDatas),
       _Inputs(),
       _FilledMask(),
+      _OwnerMap(),
       _ResultGray(),
       _FilledPixelCount(0),
       _LegacyGeoMapCallCount(0),
@@ -115,6 +116,7 @@ void AdaptivePatch::Execute() {
     SuperDebug::Info("AdaptivePatch preparing {} input image/mask pairs...", _Inputs.size());
     _PrepareInputs();
     _FilledMask = cv::Mat::zeros(AlgorithmResult.Height(), AlgorithmResult.Width(), CV_8UC1);
+    _OwnerMap = cv::Mat(AlgorithmResult.Height(), AlgorithmResult.Width(), CV_32SC1, cv::Scalar(-1));
     _ResultGray = cv::Mat::zeros(AlgorithmResult.Height(), AlgorithmResult.Width(), CV_8UC1);
     _FilledPixelCount = 0;
     _LegacyGeoMapCallCount = 0;
@@ -131,7 +133,6 @@ void AdaptivePatch::Execute() {
     do {
         ++roundIndex;
         expandedInRound = false;
-        SuperDebug::Info("AdaptivePatch round {} started. Current filled pixels: {}/{}.", roundIndex, _FilledPixelCount, totalMosaicPixels);
 
         for (const auto direction : {ExpandDirection::Up, ExpandDirection::Right, ExpandDirection::Down, ExpandDirection::Left}) {
             const auto report = _ExpandDirection(direction);
@@ -145,8 +146,8 @@ void AdaptivePatch::Execute() {
             }
         }
 
-        SuperDebug::Info("AdaptivePatch round {} completed. Progress={}, remaining_pixels={}.",
-                         roundIndex, expandedInRound ? "yes" : "no", totalMosaicPixels - _FilledPixelCount);
+        SuperDebug::InfoInline("AdaptivePatch round {} completed. Progress={}, filled_pixels={}/{}, remaining_pixels={}.",
+                               roundIndex, expandedInRound ? "yes" : "no", _FilledPixelCount, totalMosaicPixels, totalMosaicPixels - _FilledPixelCount);
     } while (expandedInRound);
 
     SuperDebug::Info("AdaptivePatch completed. Final filled pixels: {}/{}, legacy_geo_map_calls={}.",
@@ -225,17 +226,18 @@ bool AdaptivePatch::_InitializeSeedRegion() {
 
     for (size_t index = 0; index < _Inputs.size(); ++index) {
         const auto rectangle = _FindLargestValidRectangle(_Inputs[index].ValidMask);
-        SuperDebug::Info("AdaptivePatch seed candidate input {}: clear_ratio={:.4f}, max_rect={}x{}, area={}.",
-                         _Inputs[index].OriginalIndex, _Inputs[index].ClearRatio,
-                         rectangle.height, rectangle.width, rectangle.area());
+        const int mosaicRow = rectangle.y + _Inputs[index].RowOffset;
+        const int mosaicColumn = rectangle.x + _Inputs[index].ColumnOffset;
+        SuperDebug::Info(
+            "AdaptivePatch seed candidate input {} ({}): clear_ratio={:.4f}, image_rect=(row={}, col={}, h={}, w={}), mosaic_rect=(row={}, col={}, h={}, w={}), area={}.",
+            _Inputs[index].OriginalIndex, _Inputs[index].Image.ImageName, _Inputs[index].ClearRatio,
+            rectangle.y, rectangle.x, rectangle.height, rectangle.width,
+            mosaicRow, mosaicColumn, rectangle.height, rectangle.width, rectangle.area());
         if (rectangle.area() <= 0) {
             continue;
         }
 
-        if (!foundSeed ||
-            _Inputs[index].ClearRatio > bestSeed.ClearRatio + kCorrelationEpsilon ||
-            (std::abs(_Inputs[index].ClearRatio - bestSeed.ClearRatio) <= kCorrelationEpsilon &&
-             rectangle.area() > bestSeed.Rectangle.area())) {
+        if (!foundSeed || rectangle.area() > bestSeed.Rectangle.area()) {
             bestSeed.InputIndex = index;
             bestSeed.Rectangle = rectangle;
             bestSeed.ClearRatio = _Inputs[index].ClearRatio;
@@ -248,6 +250,8 @@ bool AdaptivePatch::_InitializeSeedRegion() {
     }
 
     const auto &seedInput = _Inputs[bestSeed.InputIndex];
+    const int selectedMosaicRow = bestSeed.Rectangle.y + seedInput.RowOffset;
+    const int selectedMosaicColumn = bestSeed.Rectangle.x + seedInput.ColumnOffset;
     for (int row = bestSeed.Rectangle.y; row < bestSeed.Rectangle.y + bestSeed.Rectangle.height; ++row) {
         for (int column = bestSeed.Rectangle.x; column < bestSeed.Rectangle.x + bestSeed.Rectangle.width; ++column) {
             const int mosaicRow = row + seedInput.RowOffset;
@@ -261,13 +265,16 @@ bool AdaptivePatch::_InitializeSeedRegion() {
                 continue;
             }
 
-            _SetFilledPixel(mosaicRow, mosaicColumn, pixelValue, seedInput.GrayImage.at<unsigned char>(row, column));
+            _SetFilledPixel(mosaicRow, mosaicColumn, pixelValue, seedInput.GrayImage.at<unsigned char>(row, column), static_cast<int>(bestSeed.InputIndex));
         }
     }
 
-    SuperDebug::Info("AdaptivePatch seed selected from input {} with clear ratio {:.4f}, rectangle {}x{}, area={}.",
-                     bestSeed.InputIndex, bestSeed.ClearRatio, bestSeed.Rectangle.height, bestSeed.Rectangle.width,
-                     bestSeed.Rectangle.area());
+    SuperDebug::Info(
+        "AdaptivePatch seed selected by max_rect_area from input {} ({}): clear_ratio={:.4f}, image_rect=(row={}, col={}, h={}, w={}), mosaic_rect=(row={}, col={}, h={}, w={}), area={}.",
+        seedInput.OriginalIndex, seedInput.Image.ImageName, bestSeed.ClearRatio,
+        bestSeed.Rectangle.y, bestSeed.Rectangle.x, bestSeed.Rectangle.height, bestSeed.Rectangle.width,
+        selectedMosaicRow, selectedMosaicColumn, bestSeed.Rectangle.height, bestSeed.Rectangle.width,
+        bestSeed.Rectangle.area());
     return true;
 }
 
@@ -332,7 +339,7 @@ AdaptivePatch::ExpandPassReport AdaptivePatch::_ExpandDirection(ExpandDirection 
             }
 
             const auto copyStart = std::chrono::steady_clock::now();
-            _CopyPatchToResult(_Inputs[candidate.InputIndex], direction, boundaryRow, boundaryColumn, candidate.Length);
+            _CopyPatchToResult(_Inputs[candidate.InputIndex], direction, boundaryRow, boundaryColumn, candidate.Length, candidate.InputIndex);
             const auto copyEnd = std::chrono::steady_clock::now();
             report.PatchCopyMs += _ElapsedMilliseconds(copyStart, copyEnd);
 
@@ -407,6 +414,17 @@ bool AdaptivePatch::_IsFilled(int row, int column) const {
 }
 
 AdaptivePatch::CandidatePatch AdaptivePatch::_SelectBestCandidate(ExpandDirection direction, int boundaryRow, int boundaryColumn, int maxLength) const {
+    if (!_OwnerMap.empty() && boundaryRow >= 0 && boundaryRow < _OwnerMap.rows && boundaryColumn >= 0 && boundaryColumn < _OwnerMap.cols) {
+        const int ownerInputIndex = _OwnerMap.at<int>(boundaryRow, boundaryColumn);
+        if (ownerInputIndex >= 0 && ownerInputIndex < static_cast<int>(_Inputs.size())) {
+            const auto ownerCandidate = _EvaluateCandidate(static_cast<size_t>(ownerInputIndex), _Inputs[static_cast<size_t>(ownerInputIndex)],
+                                                           direction, boundaryRow, boundaryColumn, maxLength);
+            if (ownerCandidate.IsValid && ownerCandidate.Length > 0) {
+                return ownerCandidate;
+            }
+        }
+    }
+
     CandidatePatch bestCandidate = {};
     bestCandidate.Correlation = std::numeric_limits<double>::lowest();
 
@@ -490,7 +508,7 @@ AdaptivePatch::CandidatePatch AdaptivePatch::_EvaluateCandidate(size_t inputInde
     return candidate;
 }
 
-void AdaptivePatch::_CopyPatchToResult(const InputBundle &input, ExpandDirection direction, int boundaryRow, int boundaryColumn, int length) {
+void AdaptivePatch::_CopyPatchToResult(const InputBundle &input, ExpandDirection direction, int boundaryRow, int boundaryColumn, int length, size_t ownerInputIndex) {
     const auto [normalRow, normalColumn] = _GetNormalOffset(direction);
     const auto [tangentRow, tangentColumn] = _GetTangentOffset(direction);
     const int imageRows = input.Image.Height();
@@ -510,7 +528,8 @@ void AdaptivePatch::_CopyPatchToResult(const InputBundle &input, ExpandDirection
             targetMosaicRow,
             targetMosaicColumn,
             input.Image.GetPixelValue<cv::Vec3b>(localRow, localColumn),
-            input.GrayImage.at<unsigned char>(localRow, localColumn));
+            input.GrayImage.at<unsigned char>(localRow, localColumn),
+            static_cast<int>(ownerInputIndex));
 
         targetMosaicRow += tangentRow;
         targetMosaicColumn += tangentColumn;
@@ -562,7 +581,7 @@ const char *AdaptivePatch::_GetDirectionName(ExpandDirection direction) const {
     return "Unknown";
 }
 
-void AdaptivePatch::_SetFilledPixel(int mosaicRow, int mosaicColumn, const cv::Vec3b &pixelValue, unsigned char grayValue) {
+void AdaptivePatch::_SetFilledPixel(int mosaicRow, int mosaicColumn, const cv::Vec3b &pixelValue, unsigned char grayValue, int ownerInputIndex) {
     if (mosaicRow < 0 || mosaicRow >= AlgorithmResult.Height() || mosaicColumn < 0 || mosaicColumn >= AlgorithmResult.Width()) {
         return;
     }
@@ -572,6 +591,9 @@ void AdaptivePatch::_SetFilledPixel(int mosaicRow, int mosaicColumn, const cv::V
     }
     AlgorithmResult.SetPixelValue(mosaicRow, mosaicColumn, pixelValue);
     _FilledMask.at<unsigned char>(mosaicRow, mosaicColumn) = kFilledValue;
+    if (!_OwnerMap.empty()) {
+        _OwnerMap.at<int>(mosaicRow, mosaicColumn) = ownerInputIndex;
+    }
     _ResultGray.at<unsigned char>(mosaicRow, mosaicColumn) = grayValue;
 }
 
