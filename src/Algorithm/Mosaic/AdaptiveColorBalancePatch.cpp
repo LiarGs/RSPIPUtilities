@@ -1,0 +1,755 @@
+#include "Algorithm/Mosaic/AdaptiveColorBalancePatch.h"
+#include "Util/General.h"
+#include "Util/SuperDebug.hpp"
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <limits>
+#include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
+#include <stack>
+
+namespace RSPIP::Algorithm::MosaicAlgorithm {
+
+namespace {
+
+constexpr unsigned char kFilledValue = 255;
+constexpr double kCorrelationEpsilon = 1e-9;
+
+unsigned char _GetCloudMaskValue(const CloudMask &cloudMask, int row, int column) {
+    if (cloudMask.ImageData.empty() || row < 0 || row >= cloudMask.Height() || column < 0 || column >= cloudMask.Width()) {
+        return kFilledValue;
+    }
+
+    switch (cloudMask.GetBandCounts()) {
+    case 1:
+        return cloudMask.GetPixelValue<unsigned char>(row, column);
+    case 3:
+        return cloudMask.GetPixelValue<cv::Vec3b>(row, column)[0];
+    case 4:
+        return cloudMask.GetPixelValue<cv::Vec4b>(row, column)[0];
+    default:
+        return kFilledValue;
+    }
+}
+
+bool _RectIsPreferred(const cv::Rect &candidate, const cv::Rect &currentBest) {
+    if (candidate.area() != currentBest.area()) {
+        return candidate.area() > currentBest.area();
+    }
+    if (candidate.y != currentBest.y) {
+        return candidate.y < currentBest.y;
+    }
+    if (candidate.x != currentBest.x) {
+        return candidate.x < currentBest.x;
+    }
+    if (candidate.height != currentBest.height) {
+        return candidate.height > currentBest.height;
+    }
+    return candidate.width > currentBest.width;
+}
+
+double _ElapsedMilliseconds(const std::chrono::steady_clock::time_point &start, const std::chrono::steady_clock::time_point &end) {
+    return std::chrono::duration<double, std::milli>(end - start).count();
+}
+
+double _ComputePearsonCorrelation(size_t sampleCount, double sumX, double sumY, double sumXX, double sumYY, double sumXY) {
+    if (sampleCount <= 1) {
+        return 0.0;
+    }
+
+    const auto count = static_cast<double>(sampleCount);
+    const double numerator = sumXY - (sumX * sumY) / count;
+    const double varianceX = sumXX - (sumX * sumX) / count;
+    const double varianceY = sumYY - (sumY * sumY) / count;
+    if (varianceX <= kCorrelationEpsilon || varianceY <= kCorrelationEpsilon) {
+        return 0.0;
+    }
+
+    return numerator / std::sqrt(varianceX * varianceY);
+}
+
+} // namespace
+
+AdaptiveColorBalancePatch::AdaptiveColorBalancePatch(const std::vector<GeoImage> &imageDatas, const std::vector<CloudMask> &cloudMasks)
+    : MosaicAlgorithmBase(imageDatas),
+      _Inputs(),
+      _FilledMask(),
+      _OwnerMap(),
+      _ResultGray(),
+      _FilledPixelCount(0),
+      _HasCompleteMaskSet(!cloudMasks.empty() && cloudMasks.size() == imageDatas.size()) {
+    _Inputs.reserve(imageDatas.size());
+    for (size_t index = 0; index < imageDatas.size(); ++index) {
+        InputBundle bundle = {};
+        bundle.Image = imageDatas[index];
+        if (index < cloudMasks.size()) {
+            bundle.Mask = cloudMasks[index];
+        }
+        bundle.OriginalIndex = index;
+        _Inputs.emplace_back(std::move(bundle));
+    }
+}
+
+void AdaptiveColorBalancePatch::Execute() {
+    SuperDebug::ScopeTimer algorithmTimer("AdaptiveColorBalancePatch Execution");
+    SuperDebug::Info("Mosaic Image Size: {} x {}", AlgorithmResult.Height(), AlgorithmResult.Width());
+    const int totalMosaicPixels = AlgorithmResult.Height() * AlgorithmResult.Width();
+
+    if (_Inputs.empty()) {
+        SuperDebug::Warn("AdaptiveColorBalancePatch received no input images.");
+        return;
+    }
+
+    if (_Inputs.size() != _MosaicImages.size()) {
+        SuperDebug::Error("AdaptiveColorBalancePatch input initialization failed. Fallback to plain geographic mosaic.");
+        _FallbackToPlainMosaic();
+        return;
+    }
+
+    if (!_HasCompleteMaskSet) {
+        SuperDebug::Error("AdaptiveColorBalancePatch requires cloud masks with the same count as input images.");
+        SuperDebug::Error("Current behavior fallback: perform plain geographic mosaic without adaptive color balancing.");
+        _FallbackToPlainMosaic();
+        return;
+    }
+
+    SuperDebug::Info("AdaptiveColorBalancePatch preparing {} input image/mask pairs...", _Inputs.size());
+    _PrepareInputs();
+    _FilledMask = cv::Mat::zeros(AlgorithmResult.Height(), AlgorithmResult.Width(), CV_8UC1);
+    _OwnerMap = cv::Mat(AlgorithmResult.Height(), AlgorithmResult.Width(), CV_32SC1, cv::Scalar(-1));
+    _ResultGray = cv::Mat::zeros(AlgorithmResult.Height(), AlgorithmResult.Width(), CV_8UC1);
+    _FilledPixelCount = 0;
+
+    if (!_InitializeSeedRegion()) {
+        SuperDebug::Warn("AdaptiveColorBalancePatch could not find a valid seed region. Fallback to plain geographic mosaic.");
+        _FallbackToPlainMosaic();
+        return;
+    }
+
+    SuperDebug::Info("AdaptiveColorBalancePatch seed initialized. Filled pixels: {}/{}.", _FilledPixelCount, totalMosaicPixels);
+
+    bool expandedInRound = false;
+    int roundIndex = 0;
+    do {
+        ++roundIndex;
+        expandedInRound = false;
+
+        for (const auto direction : {ExpandDirection::Up, ExpandDirection::Right, ExpandDirection::Down, ExpandDirection::Left}) {
+            const auto report = _ExpandDirection(direction);
+            // SuperDebug::Info(
+            //     "AdaptiveColorBalancePatch round {} [{}] pass finished: segments={}, strips={}, balanced_strips={}, direct_paste_fallback={}, skipped_starts={}, written_pixels={}, boundary_ms={:.3f}, eval_ms={:.3f}, apply_ms={:.3f}, filled={}/{}.",
+            //     roundIndex, _GetDirectionName(direction), report.SegmentCount, report.SuccessStripCount,
+            //     report.BalancedStripCount, report.DirectPasteStripCount, report.FailedStartCount,
+            //     report.WrittenPixelCount, report.BoundaryCollectMs, report.CandidateEvalMs,
+            //     report.PatchApplyMs, _FilledPixelCount, totalMosaicPixels);
+            if (report.Expanded()) {
+                expandedInRound = true;
+            }
+        }
+
+        SuperDebug::InfoInline("AdaptiveColorBalancePatch round {} completed. Progress={}, filled_pixels={}/{}, remaining_pixels={}.",
+                               roundIndex, expandedInRound ? "yes" : "no", _FilledPixelCount, totalMosaicPixels, totalMosaicPixels - _FilledPixelCount);
+    } while (expandedInRound);
+
+    SuperDebug::Info("AdaptiveColorBalancePatch completed. Final filled pixels: {}/{}.", _FilledPixelCount, totalMosaicPixels);
+}
+
+void AdaptiveColorBalancePatch::_PrepareInputs() {
+    const bool hasMosaicGeoTransform = AlgorithmResult.GeoTransform.size() >= 6 &&
+                                       std::abs(AlgorithmResult.GeoTransform[1]) > kCorrelationEpsilon &&
+                                       std::abs(AlgorithmResult.GeoTransform[5]) > kCorrelationEpsilon;
+    const double mosaicPixelWidth = hasMosaicGeoTransform ? AlgorithmResult.GeoTransform[1] : 1.0;
+    const double mosaicPixelHeight = hasMosaicGeoTransform ? std::abs(AlgorithmResult.GeoTransform[5]) : 1.0;
+    std::array<double, 3> globalValidSums = {0.0, 0.0, 0.0};
+    std::array<double, 3> globalValidSquaredSums = {0.0, 0.0, 0.0};
+    _HasGlobalValidStatistics = false;
+    _GlobalValidPixelCount = 0;
+    _GlobalValidMeans = {0.0, 0.0, 0.0};
+    _GlobalValidStdDevs = {0.0, 0.0, 0.0};
+
+    for (auto &input : _Inputs) {
+        input.ValidMask = cv::Mat::zeros(input.Image.Height(), input.Image.Width(), CV_8UC1);
+        input.GrayImage = cv::Mat::zeros(input.Image.Height(), input.Image.Width(), CV_8UC1);
+
+        if (hasMosaicGeoTransform && input.Image.GeoTransform.size() >= 6) {
+            const bool sameResolution = std::abs(input.Image.GeoTransform[1] - AlgorithmResult.GeoTransform[1]) <= kCorrelationEpsilon &&
+                                        std::abs(std::abs(input.Image.GeoTransform[5]) - mosaicPixelHeight) <= kCorrelationEpsilon;
+            const bool zeroRotation = std::abs(input.Image.GeoTransform[2]) <= kCorrelationEpsilon &&
+                                      std::abs(input.Image.GeoTransform[4]) <= kCorrelationEpsilon &&
+                                      std::abs(AlgorithmResult.GeoTransform[2]) <= kCorrelationEpsilon &&
+                                      std::abs(AlgorithmResult.GeoTransform[4]) <= kCorrelationEpsilon;
+            if (!sameResolution || !zeroRotation) {
+                SuperDebug::Warn("AdaptiveColorBalancePatch input {} does not fully match the unified grid assumption.", input.OriginalIndex);
+            }
+
+            input.ColumnOffset = static_cast<int>(std::lround((input.Image.GeoTransform[0] - AlgorithmResult.GeoTransform[0]) / mosaicPixelWidth));
+            input.RowOffset = static_cast<int>(std::lround((AlgorithmResult.GeoTransform[3] - input.Image.GeoTransform[3]) / mosaicPixelHeight));
+        } else {
+            input.ColumnOffset = 0;
+            input.RowOffset = 0;
+        }
+
+        int clearPixels = 0;
+        int extentPixels = 0;
+        for (int row = 0; row < input.Image.Height(); ++row) {
+            const auto *imagePtr = input.Image.ImageData.ptr<cv::Vec3b>(row);
+            auto *validPtr = input.ValidMask.ptr<unsigned char>(row);
+            auto *grayPtr = input.GrayImage.ptr<unsigned char>(row);
+
+            for (int column = 0; column < input.Image.Width(); ++column) {
+                const auto &pixelValue = imagePtr[column];
+                if (pixelValue == input.Image.NonData) {
+                    continue;
+                }
+
+                grayPtr[column] = static_cast<unsigned char>(Util::BGRToGray(pixelValue));
+                ++extentPixels;
+                if (_GetCloudMaskValue(input.Mask, row, column) == input.Mask.NonData[0]) {
+                    validPtr[column] = kFilledValue;
+                    ++clearPixels;
+                    ++_GlobalValidPixelCount;
+                    for (size_t channelIndex = 0; channelIndex < globalValidSums.size(); ++channelIndex) {
+                        const double channelValue = static_cast<double>(pixelValue[static_cast<int>(channelIndex)]);
+                        globalValidSums[channelIndex] += channelValue;
+                        globalValidSquaredSums[channelIndex] += channelValue * channelValue;
+                    }
+                }
+            }
+        }
+
+        input.ClearRatio = extentPixels == 0 ? 0.0 : static_cast<double>(clearPixels) / static_cast<double>(extentPixels);
+        SuperDebug::Info(
+            "AdaptiveColorBalancePatch input {} prepared: extent_pixels={}, clear_pixels={}, clear_ratio={:.4f}, offset=({}, {}).",
+            input.OriginalIndex, extentPixels, clearPixels, input.ClearRatio, input.RowOffset, input.ColumnOffset);
+    }
+
+    _HasGlobalValidStatistics = _GlobalValidPixelCount > 0;
+    if (_HasGlobalValidStatistics) {
+        const double pixelCount = static_cast<double>(_GlobalValidPixelCount);
+        for (size_t channelIndex = 0; channelIndex < _GlobalValidMeans.size(); ++channelIndex) {
+            _GlobalValidMeans[channelIndex] = globalValidSums[channelIndex] / pixelCount;
+            const double variance = std::max(0.0, globalValidSquaredSums[channelIndex] / pixelCount -
+                                                      _GlobalValidMeans[channelIndex] * _GlobalValidMeans[channelIndex]);
+            _GlobalValidStdDevs[channelIndex] = std::sqrt(variance);
+        }
+
+        SuperDebug::Info(
+            "AdaptiveColorBalancePatch global valid statistics prepared: pixel_count={}, mean=({:.3f}, {:.3f}, {:.3f}), std=({:.3f}, {:.3f}, {:.3f}).",
+            _GlobalValidPixelCount,
+            _GlobalValidMeans[0], _GlobalValidMeans[1], _GlobalValidMeans[2],
+            _GlobalValidStdDevs[0], _GlobalValidStdDevs[1], _GlobalValidStdDevs[2]);
+    } else {
+        SuperDebug::Warn("AdaptiveColorBalancePatch could not compute global valid statistics for seed color balancing.");
+    }
+}
+
+void AdaptiveColorBalancePatch::_FallbackToPlainMosaic() {
+    SuperDebug::Warn("AdaptiveColorBalancePatch fallback started: using plain geographic mosaic.");
+    for (const auto &imageData : _MosaicImages) {
+        _PasteImageToMosaicResult(imageData);
+    }
+    SuperDebug::Warn("AdaptiveColorBalancePatch fallback completed.");
+}
+
+bool AdaptiveColorBalancePatch::_InitializeSeedRegion() {
+    SeedRegion bestSeed = {};
+    bool foundSeed = false;
+
+    for (size_t index = 0; index < _Inputs.size(); ++index) {
+        const auto rectangle = _FindLargestValidRectangle(_Inputs[index].ValidMask);
+        const int mosaicRow = rectangle.y + _Inputs[index].RowOffset;
+        const int mosaicColumn = rectangle.x + _Inputs[index].ColumnOffset;
+        SuperDebug::Info(
+            "AdaptiveColorBalancePatch seed candidate input {} ({}): clear_ratio={:.4f}, image_rect=(row={}, col={}, h={}, w={}), mosaic_rect=(row={}, col={}, h={}, w={}), area={}.",
+            _Inputs[index].OriginalIndex, _Inputs[index].Image.ImageName, _Inputs[index].ClearRatio,
+            rectangle.y, rectangle.x, rectangle.height, rectangle.width,
+            mosaicRow, mosaicColumn, rectangle.height, rectangle.width, rectangle.area());
+        if (rectangle.area() <= 0) {
+            continue;
+        }
+
+        if (!foundSeed || rectangle.area() > bestSeed.Rectangle.area()) {
+            bestSeed.InputIndex = index;
+            bestSeed.Rectangle = rectangle;
+            bestSeed.ClearRatio = _Inputs[index].ClearRatio;
+            foundSeed = true;
+        }
+    }
+
+    if (!foundSeed || !bestSeed.IsValid()) {
+        return false;
+    }
+
+    const auto &seedInput = _Inputs[bestSeed.InputIndex];
+    const int selectedMosaicRow = bestSeed.Rectangle.y + seedInput.RowOffset;
+    const int selectedMosaicColumn = bestSeed.Rectangle.x + seedInput.ColumnOffset;
+    for (int row = bestSeed.Rectangle.y; row < bestSeed.Rectangle.y + bestSeed.Rectangle.height; ++row) {
+        for (int column = bestSeed.Rectangle.x; column < bestSeed.Rectangle.x + bestSeed.Rectangle.width; ++column) {
+            const int mosaicRow = row + seedInput.RowOffset;
+            const int mosaicColumn = column + seedInput.ColumnOffset;
+            if (mosaicRow < 0 || mosaicRow >= AlgorithmResult.Height() || mosaicColumn < 0 || mosaicColumn >= AlgorithmResult.Width()) {
+                continue;
+            }
+
+            const auto pixelValue = seedInput.Image.GetPixelValue<cv::Vec3b>(row, column);
+            if (pixelValue == seedInput.Image.NonData) {
+                continue;
+            }
+
+            _SetFilledPixel(mosaicRow, mosaicColumn, pixelValue, seedInput.GrayImage.at<unsigned char>(row, column), static_cast<int>(bestSeed.InputIndex));
+        }
+    }
+
+    SuperDebug::Info(
+        "AdaptiveColorBalancePatch seed selected by max_rect_area from input {} ({}): clear_ratio={:.4f}, image_rect=(row={}, col={}, h={}, w={}), mosaic_rect=(row={}, col={}, h={}, w={}), area={}.",
+        seedInput.OriginalIndex, seedInput.Image.ImageName, bestSeed.ClearRatio,
+        bestSeed.Rectangle.y, bestSeed.Rectangle.x, bestSeed.Rectangle.height, bestSeed.Rectangle.width,
+        selectedMosaicRow, selectedMosaicColumn, bestSeed.Rectangle.height, bestSeed.Rectangle.width,
+        bestSeed.Rectangle.area());
+    return true;
+}
+
+cv::Rect AdaptiveColorBalancePatch::_FindLargestValidRectangle(const cv::Mat &validMask) const {
+    if (validMask.empty()) {
+        return {};
+    }
+
+    std::vector<int> heights(validMask.cols, 0);
+    cv::Rect bestRectangle = {};
+
+    for (int row = 0; row < validMask.rows; ++row) {
+        for (int column = 0; column < validMask.cols; ++column) {
+            heights[column] = validMask.at<unsigned char>(row, column) == 0 ? 0 : heights[column] + 1;
+        }
+
+        std::stack<int> indexStack;
+        for (int column = 0; column <= validMask.cols; ++column) {
+            const int currentHeight = column == validMask.cols ? 0 : heights[column];
+            while (!indexStack.empty() && currentHeight < heights[indexStack.top()]) {
+                const int height = heights[indexStack.top()];
+                indexStack.pop();
+                const int leftBoundary = indexStack.empty() ? 0 : indexStack.top() + 1;
+                const int width = column - leftBoundary;
+                const cv::Rect candidateRectangle(leftBoundary, row - height + 1, width, height);
+                if (_RectIsPreferred(candidateRectangle, bestRectangle)) {
+                    bestRectangle = candidateRectangle;
+                }
+            }
+            indexStack.push(column);
+        }
+    }
+
+    return bestRectangle;
+}
+
+AdaptiveColorBalancePatch::ExpandPassReport AdaptiveColorBalancePatch::_ExpandDirection(ExpandDirection direction) {
+    const auto collectStart = std::chrono::steady_clock::now();
+    const auto segments = _CollectBoundarySegments(direction);
+    const auto collectEnd = std::chrono::steady_clock::now();
+
+    const auto [tangentRow, tangentColumn] = _GetTangentOffset(direction);
+    ExpandPassReport report = {};
+    report.SegmentCount = static_cast<int>(segments.size());
+    report.BoundaryCollectMs = _ElapsedMilliseconds(collectStart, collectEnd);
+
+    for (const auto &segment : segments) {
+        int processedLength = 0;
+        while (processedLength < segment.Length) {
+            const int boundaryRow = segment.StartRow + tangentRow * processedLength;
+            const int boundaryColumn = segment.StartColumn + tangentColumn * processedLength;
+
+            const auto evalStart = std::chrono::steady_clock::now();
+            const auto candidate = _SelectBestCandidate(direction, boundaryRow, boundaryColumn, segment.Length - processedLength);
+            const auto evalEnd = std::chrono::steady_clock::now();
+            report.CandidateEvalMs += _ElapsedMilliseconds(evalStart, evalEnd);
+
+            if (!candidate.IsValid || candidate.Length <= 0) {
+                ++report.FailedStartCount;
+                ++processedLength;
+                continue;
+            }
+
+            const auto applyStart = std::chrono::steady_clock::now();
+            const auto applyResult = _ApplyBalancedPatch(candidate, direction, boundaryRow, boundaryColumn);
+            const auto applyEnd = std::chrono::steady_clock::now();
+            report.PatchApplyMs += _ElapsedMilliseconds(applyStart, applyEnd);
+
+            if (applyResult == PatchApplyResult::Failed) {
+                ++report.FailedStartCount;
+                ++processedLength;
+                continue;
+            }
+
+            report.WrittenPixelCount += candidate.Length;
+            ++report.SuccessStripCount;
+            if (applyResult == PatchApplyResult::Balanced) {
+                ++report.BalancedStripCount;
+            } else {
+                ++report.DirectPasteStripCount;
+            }
+            processedLength += candidate.Length;
+        }
+    }
+
+    return report;
+}
+
+std::vector<AdaptiveColorBalancePatch::BoundarySegment> AdaptiveColorBalancePatch::_CollectBoundarySegments(ExpandDirection direction) const {
+    std::vector<BoundarySegment> segments = {};
+    if (_FilledMask.empty()) {
+        return segments;
+    }
+
+    if (direction == ExpandDirection::Up || direction == ExpandDirection::Down) {
+        for (int row = 0; row < _FilledMask.rows; ++row) {
+            int column = 0;
+            while (column < _FilledMask.cols) {
+                if (!_IsBoundaryPixel(direction, row, column)) {
+                    ++column;
+                    continue;
+                }
+
+                const int startColumn = column;
+                while (column < _FilledMask.cols && _IsBoundaryPixel(direction, row, column)) {
+                    ++column;
+                }
+                segments.push_back({row, startColumn, column - startColumn});
+            }
+        }
+        return segments;
+    }
+
+    for (int column = 0; column < _FilledMask.cols; ++column) {
+        int row = 0;
+        while (row < _FilledMask.rows) {
+            if (!_IsBoundaryPixel(direction, row, column)) {
+                ++row;
+                continue;
+            }
+
+            const int startRow = row;
+            while (row < _FilledMask.rows && _IsBoundaryPixel(direction, row, column)) {
+                ++row;
+            }
+            segments.push_back({startRow, column, row - startRow});
+        }
+    }
+
+    return segments;
+}
+
+bool AdaptiveColorBalancePatch::_IsBoundaryPixel(ExpandDirection direction, int row, int column) const {
+    if (!_IsFilled(row, column)) {
+        return false;
+    }
+
+    const auto [normalRow, normalColumn] = _GetNormalOffset(direction);
+    return !_IsFilled(row + normalRow, column + normalColumn);
+}
+
+bool AdaptiveColorBalancePatch::_IsFilled(int row, int column) const {
+    if (_FilledMask.empty() || row < 0 || row >= _FilledMask.rows || column < 0 || column >= _FilledMask.cols) {
+        return false;
+    }
+
+    return _FilledMask.at<unsigned char>(row, column) == kFilledValue;
+}
+
+AdaptiveColorBalancePatch::CandidatePatch AdaptiveColorBalancePatch::_SelectBestCandidate(ExpandDirection direction, int boundaryRow, int boundaryColumn, int maxLength) const {
+    if (!_OwnerMap.empty() && boundaryRow >= 0 && boundaryRow < _OwnerMap.rows && boundaryColumn >= 0 && boundaryColumn < _OwnerMap.cols) {
+        const int ownerInputIndex = _OwnerMap.at<int>(boundaryRow, boundaryColumn);
+        if (ownerInputIndex >= 0 && ownerInputIndex < static_cast<int>(_Inputs.size())) {
+            const auto ownerCandidate = _EvaluateCandidate(static_cast<size_t>(ownerInputIndex), _Inputs[static_cast<size_t>(ownerInputIndex)],
+                                                           direction, boundaryRow, boundaryColumn, maxLength);
+            if (ownerCandidate.IsValid && ownerCandidate.Length > 0) {
+                return ownerCandidate;
+            }
+        }
+    }
+
+    CandidatePatch bestCandidate = {};
+    bestCandidate.Correlation = std::numeric_limits<double>::lowest();
+
+    for (size_t inputIndex = 0; inputIndex < _Inputs.size(); ++inputIndex) {
+        const auto candidate = _EvaluateCandidate(inputIndex, _Inputs[inputIndex], direction, boundaryRow, boundaryColumn, maxLength);
+        if (!candidate.IsValid) {
+            continue;
+        }
+
+        if (!bestCandidate.IsValid ||
+            candidate.Correlation > bestCandidate.Correlation + kCorrelationEpsilon ||
+            (std::abs(candidate.Correlation - bestCandidate.Correlation) <= kCorrelationEpsilon && candidate.Length > bestCandidate.Length) ||
+            (std::abs(candidate.Correlation - bestCandidate.Correlation) <= kCorrelationEpsilon && candidate.Length == bestCandidate.Length &&
+             _Inputs[candidate.InputIndex].OriginalIndex < _Inputs[bestCandidate.InputIndex].OriginalIndex)) {
+            bestCandidate = candidate;
+        }
+    }
+
+    return bestCandidate;
+}
+
+AdaptiveColorBalancePatch::CandidatePatch AdaptiveColorBalancePatch::_EvaluateCandidate(size_t inputIndex, const InputBundle &input, ExpandDirection direction, int boundaryRow, int boundaryColumn, int maxLength) const {
+    CandidatePatch candidate = {};
+    candidate.InputIndex = inputIndex;
+
+    const auto [normalRow, normalColumn] = _GetNormalOffset(direction);
+    const auto [tangentRow, tangentColumn] = _GetTangentOffset(direction);
+    const int imageRows = input.Image.Height();
+    const int imageColumns = input.Image.Width();
+
+    int innerLocalRow = boundaryRow - input.RowOffset;
+    int innerLocalColumn = boundaryColumn - input.ColumnOffset;
+    int outerLocalRow = innerLocalRow + normalRow;
+    int outerLocalColumn = innerLocalColumn + normalColumn;
+    int innerMosaicRow = boundaryRow;
+    int innerMosaicColumn = boundaryColumn;
+
+    double sumMosaic = 0.0;
+    double sumInput = 0.0;
+    double sumMosaicSq = 0.0;
+    double sumInputSq = 0.0;
+    double sumCross = 0.0;
+    size_t sampleCount = 0;
+
+    for (int step = 0; step < maxLength; ++step) {
+        if (innerLocalRow < 0 || innerLocalRow >= imageRows || innerLocalColumn < 0 || innerLocalColumn >= imageColumns ||
+            outerLocalRow < 0 || outerLocalRow >= imageRows || outerLocalColumn < 0 || outerLocalColumn >= imageColumns) {
+            break;
+        }
+
+        if (input.ValidMask.at<unsigned char>(innerLocalRow, innerLocalColumn) == 0 ||
+            input.ValidMask.at<unsigned char>(outerLocalRow, outerLocalColumn) == 0) {
+            break;
+        }
+
+        const double mosaicGray = static_cast<double>(_ResultGray.at<unsigned char>(innerMosaicRow, innerMosaicColumn));
+        const double inputGray = static_cast<double>(input.GrayImage.at<unsigned char>(innerLocalRow, innerLocalColumn));
+
+        sumMosaic += mosaicGray;
+        sumInput += inputGray;
+        sumMosaicSq += mosaicGray * mosaicGray;
+        sumInputSq += inputGray * inputGray;
+        sumCross += mosaicGray * inputGray;
+        ++sampleCount;
+
+        innerLocalRow += tangentRow;
+        innerLocalColumn += tangentColumn;
+        outerLocalRow += tangentRow;
+        outerLocalColumn += tangentColumn;
+        innerMosaicRow += tangentRow;
+        innerMosaicColumn += tangentColumn;
+    }
+
+    if (sampleCount == 0) {
+        return candidate;
+    }
+
+    candidate.Length = static_cast<int>(sampleCount);
+    candidate.Correlation = _ComputePearsonCorrelation(sampleCount, sumMosaic, sumInput, sumMosaicSq, sumInputSq, sumCross);
+    candidate.IsValid = true;
+    return candidate;
+}
+
+AdaptiveColorBalancePatch::PatchApplyResult AdaptiveColorBalancePatch::_ApplyBalancedPatch(const CandidatePatch &candidate, ExpandDirection direction, int boundaryRow, int boundaryColumn) {
+    if (!candidate.IsValid || candidate.InputIndex >= _Inputs.size() || candidate.Length <= 0) {
+        return PatchApplyResult::Failed;
+    }
+
+    std::vector<PatchPixel> patchPixels = {};
+    bool hasCompleteBoundary = false;
+    if (!_BuildPatchPixels(_Inputs[candidate.InputIndex], direction, boundaryRow, boundaryColumn, candidate.Length, patchPixels, hasCompleteBoundary) || patchPixels.empty()) {
+        return PatchApplyResult::Failed;
+    }
+
+    if (hasCompleteBoundary) {
+        std::vector<cv::Vec3b> balancedValues = {};
+        if (_BalancePatchPixels(patchPixels, balancedValues) && balancedValues.size() == patchPixels.size()) {
+            for (size_t index = 0; index < patchPixels.size(); ++index) {
+                const auto &balancedValue = balancedValues[index];
+                _SetFilledPixel(
+                    patchPixels[index].MosaicRow,
+                    patchPixels[index].MosaicColumn,
+                    balancedValue,
+                    static_cast<unsigned char>(Util::BGRToGray(balancedValue)),
+                    static_cast<int>(candidate.InputIndex));
+            }
+            return PatchApplyResult::Balanced;
+        }
+    }
+
+    _PastePatchDirectly(patchPixels, candidate.InputIndex);
+    return PatchApplyResult::DirectPaste;
+}
+
+bool AdaptiveColorBalancePatch::_BuildPatchPixels(const InputBundle &input, ExpandDirection direction, int boundaryRow, int boundaryColumn, int length,
+                                                  std::vector<PatchPixel> &patchPixels, bool &hasCompleteBoundary) const {
+    patchPixels.clear();
+    hasCompleteBoundary = true;
+
+    const auto [normalRow, normalColumn] = _GetNormalOffset(direction);
+    const auto [tangentRow, tangentColumn] = _GetTangentOffset(direction);
+    const int imageRows = input.Image.Height();
+    const int imageColumns = input.Image.Width();
+
+    int targetMosaicRow = boundaryRow + normalRow;
+    int targetMosaicColumn = boundaryColumn + normalColumn;
+    int boundaryMosaicRow = boundaryRow;
+    int boundaryMosaicColumn = boundaryColumn;
+    int localRow = targetMosaicRow - input.RowOffset;
+    int localColumn = targetMosaicColumn - input.ColumnOffset;
+
+    for (int step = 0; step < length; ++step) {
+        if (localRow < 0 || localRow >= imageRows || localColumn < 0 || localColumn >= imageColumns) {
+            break;
+        }
+
+        PatchPixel patchPixel = {};
+        patchPixel.MosaicRow = targetMosaicRow;
+        patchPixel.MosaicColumn = targetMosaicColumn;
+        patchPixel.CandidateValue = input.Image.GetPixelValue<cv::Vec3b>(localRow, localColumn);
+        patchPixel.CandidateGray = input.GrayImage.at<unsigned char>(localRow, localColumn);
+
+        if (boundaryMosaicRow < 0 || boundaryMosaicRow >= AlgorithmResult.Height() ||
+            boundaryMosaicColumn < 0 || boundaryMosaicColumn >= AlgorithmResult.Width() ||
+            !_IsFilled(boundaryMosaicRow, boundaryMosaicColumn)) {
+            hasCompleteBoundary = false;
+        } else {
+            patchPixel.BoundaryValue = AlgorithmResult.GetPixelValue<cv::Vec3b>(boundaryMosaicRow, boundaryMosaicColumn);
+        }
+
+        patchPixels.emplace_back(patchPixel);
+
+        targetMosaicRow += tangentRow;
+        targetMosaicColumn += tangentColumn;
+        boundaryMosaicRow += tangentRow;
+        boundaryMosaicColumn += tangentColumn;
+        localRow += tangentRow;
+        localColumn += tangentColumn;
+    }
+
+    return static_cast<int>(patchPixels.size()) == length;
+}
+
+bool AdaptiveColorBalancePatch::_BalancePatchPixels(const std::vector<PatchPixel> &patchPixels, std::vector<cv::Vec3b> &balancedValues) const {
+    balancedValues.clear();
+    if (patchPixels.empty() || !_HasGlobalValidStatistics) {
+        return false;
+    }
+
+    try {
+        cv::Mat candidateStrip(1, static_cast<int>(patchPixels.size()), CV_8UC3);
+
+        for (size_t index = 0; index < patchPixels.size(); ++index) {
+            candidateStrip.at<cv::Vec3b>(0, static_cast<int>(index)) = patchPixels[index].CandidateValue;
+        }
+
+        cv::Mat targetMaskMat, targetGrayMat;
+        cv::cvtColor(candidateStrip, targetGrayMat, cv::COLOR_BGR2GRAY);
+        cv::inRange(targetGrayMat, 3, 210, targetMaskMat);
+        cv::Mat targetNoDataMask;
+        cv::inRange(candidateStrip, cv::Scalar::all(0), cv::Scalar::all(0), targetNoDataMask);
+
+        std::vector<double> targetMeans(candidateStrip.channels(), 0.0);
+        std::vector<double> targetStdDevs(candidateStrip.channels(), 0.0);
+        cv::meanStdDev(candidateStrip, targetMeans, targetStdDevs, targetMaskMat);
+
+        std::vector<cv::Mat> targetChannels = {};
+        cv::split(candidateStrip, targetChannels);
+        for (size_t channelIndex = 0; channelIndex < targetChannels.size(); ++channelIndex) {
+            auto &targetChannel = targetChannels[channelIndex];
+            const auto alpha = (targetStdDevs[channelIndex] < 1e-6) ? 1.0 : (_GlobalValidStdDevs[channelIndex] / targetStdDevs[channelIndex]);
+            const auto beta = _GlobalValidMeans[channelIndex] - alpha * targetMeans[channelIndex];
+            targetChannel.convertTo(targetChannel, -1, alpha, beta);
+        }
+
+        cv::Mat balancedStrip = {};
+        cv::merge(targetChannels, balancedStrip);
+        balancedStrip.setTo(0, targetNoDataMask);
+        if (balancedStrip.empty() || balancedStrip.cols != candidateStrip.cols) {
+            return false;
+        }
+
+        balancedValues.reserve(patchPixels.size());
+        for (int column = 0; column < balancedStrip.cols; ++column) {
+            balancedValues.emplace_back(balancedStrip.at<cv::Vec3b>(0, column));
+        }
+        return true;
+    } catch (const cv::Exception &exception) {
+        SuperDebug::Warn("AdaptiveColorBalancePatch color balance failed and will fallback to direct paste: {}", exception.what());
+        return false;
+    } catch (const std::exception &exception) {
+        SuperDebug::Warn("AdaptiveColorBalancePatch color balance failed and will fallback to direct paste: {}", exception.what());
+        return false;
+    } catch (...) {
+        SuperDebug::Warn("AdaptiveColorBalancePatch color balance failed with an unknown error and will fallback to direct paste.");
+        return false;
+    }
+}
+
+void AdaptiveColorBalancePatch::_PastePatchDirectly(const std::vector<PatchPixel> &patchPixels, size_t ownerInputIndex) {
+    for (const auto &patchPixel : patchPixels) {
+        _SetFilledPixel(patchPixel.MosaicRow, patchPixel.MosaicColumn, patchPixel.CandidateValue, patchPixel.CandidateGray, static_cast<int>(ownerInputIndex));
+    }
+}
+
+std::pair<int, int> AdaptiveColorBalancePatch::_GetNormalOffset(ExpandDirection direction) const {
+    switch (direction) {
+    case ExpandDirection::Up:
+        return {-1, 0};
+    case ExpandDirection::Right:
+        return {0, 1};
+    case ExpandDirection::Down:
+        return {1, 0};
+    case ExpandDirection::Left:
+        return {0, -1};
+    }
+
+    return {0, 0};
+}
+
+std::pair<int, int> AdaptiveColorBalancePatch::_GetTangentOffset(ExpandDirection direction) const {
+    switch (direction) {
+    case ExpandDirection::Up:
+    case ExpandDirection::Down:
+        return {0, 1};
+    case ExpandDirection::Right:
+    case ExpandDirection::Left:
+        return {1, 0};
+    }
+
+    return {0, 0};
+}
+
+const char *AdaptiveColorBalancePatch::_GetDirectionName(ExpandDirection direction) const {
+    switch (direction) {
+    case ExpandDirection::Up:
+        return "Up";
+    case ExpandDirection::Right:
+        return "Right";
+    case ExpandDirection::Down:
+        return "Down";
+    case ExpandDirection::Left:
+        return "Left";
+    }
+
+    return "Unknown";
+}
+
+void AdaptiveColorBalancePatch::_SetFilledPixel(int mosaicRow, int mosaicColumn, const cv::Vec3b &pixelValue, unsigned char grayValue, int ownerInputIndex) {
+    if (mosaicRow < 0 || mosaicRow >= AlgorithmResult.Height() || mosaicColumn < 0 || mosaicColumn >= AlgorithmResult.Width()) {
+        return;
+    }
+
+    if (_FilledMask.at<unsigned char>(mosaicRow, mosaicColumn) != kFilledValue) {
+        ++_FilledPixelCount;
+    }
+    AlgorithmResult.SetPixelValue(mosaicRow, mosaicColumn, pixelValue);
+    _FilledMask.at<unsigned char>(mosaicRow, mosaicColumn) = kFilledValue;
+    if (!_OwnerMap.empty()) {
+        _OwnerMap.at<int>(mosaicRow, mosaicColumn) = ownerInputIndex;
+    }
+    _ResultGray.at<unsigned char>(mosaicRow, mosaicColumn) = grayValue;
+}
+
+} // namespace RSPIP::Algorithm::MosaicAlgorithm
