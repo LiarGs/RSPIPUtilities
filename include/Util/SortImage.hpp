@@ -1,19 +1,17 @@
-﻿#pragma once
-#include "Interface/IGeoTransformer.h"
+#pragma once
+#include "Basic/Image.h"
 #include <algorithm>
-#include <type_traits>
+#include <limits>
 #include <vector>
 
 namespace RSPIP::Util {
 
-template <typename T>
-void SortImagesByLongitude(std::vector<T> &ImageDatas) {
-    // 确保 T 继承自 IGeoTransformer
-    static_assert(std::is_base_of_v<IGeoTransformer, T>, "T must derive from IGeoTransformer");
-
-    std::sort(ImageDatas.begin(), ImageDatas.end(),
-              [](const T &a, const T &b) {
-                  return a.GetLongitude(0, 0) < b.GetLongitude(0, 0);
+inline void SortImagesByLongitude(std::vector<Image> &imageDatas) {
+    std::sort(imageDatas.begin(), imageDatas.end(),
+              [](const Image &left, const Image &right) {
+                  const auto leftLongitude = left.GeoInfo.has_value() ? left.GeoInfo->GetLongitude(0, 0) : std::numeric_limits<double>::max();
+                  const auto rightLongitude = right.GeoInfo.has_value() ? right.GeoInfo->GetLongitude(0, 0) : std::numeric_limits<double>::max();
+                  return leftLongitude < rightLongitude;
               });
 }
 

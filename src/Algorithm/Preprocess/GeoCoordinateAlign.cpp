@@ -1,17 +1,19 @@
 #include "Algorithm/Preprocess/GeoCoordinateAlign.h"
-#include "Util/Color.h"
+#include "Algorithm/Detail/AlgorithmValidation.h"
 #include "Util/ProjectionTransformer.h"
 #include "Util/SuperDebug.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <limits>
+#include <opencv2/imgproc.hpp>
 
 namespace RSPIP::Algorithm::PreprocessAlgorithm {
 
 namespace {
 
 constexpr double kEpsilon = 1e-9;
+constexpr unsigned char kMaskFillValue = 255;
 
 std::pair<double, double> _ApplyGeoTransform(const std::vector<double> &geoTransform, double row, double column) {
     return {
@@ -19,154 +21,128 @@ std::pair<double, double> _ApplyGeoTransform(const std::vector<double> &geoTrans
         geoTransform[0] + column * geoTransform[1] + row * geoTransform[2]};
 }
 
-bool _WorldToPixel(const std::vector<double> &geoTransform, double latitude, double longitude, double &row, double &column) {
-    if (geoTransform.size() != 6) {
-        return false;
-    }
-
-    const auto determinant = geoTransform[1] * geoTransform[5] - geoTransform[2] * geoTransform[4];
-    if (std::abs(determinant) < kEpsilon) {
-        return false;
-    }
-
-    const auto deltaX = longitude - geoTransform[0];
-    const auto deltaY = latitude - geoTransform[3];
-
-    column = (deltaX * geoTransform[5] - deltaY * geoTransform[2]) / determinant;
-    row = (deltaY * geoTransform[1] - deltaX * geoTransform[4]) / determinant;
-    return true;
-}
-
-std::array<std::pair<double, double>, 4> _GetImageCorners(const GeoImage &imageData) {
+std::array<std::pair<double, double>, 4> _GetImageCorners(const Image &imageData) {
+    const double maxRow = static_cast<double>(std::max(imageData.Height() - 1, 0));
+    const double maxColumn = static_cast<double>(std::max(imageData.Width() - 1, 0));
     return {
-        _ApplyGeoTransform(imageData.GeoTransform, 0.0, 0.0),
-        _ApplyGeoTransform(imageData.GeoTransform, 0.0, static_cast<double>(imageData.Width())),
-        _ApplyGeoTransform(imageData.GeoTransform, static_cast<double>(imageData.Height()), 0.0),
-        _ApplyGeoTransform(imageData.GeoTransform, static_cast<double>(imageData.Height()), static_cast<double>(imageData.Width()))};
+        _ApplyGeoTransform(imageData.GeoInfo->GeoTransform, 0.0, 0.0),
+        _ApplyGeoTransform(imageData.GeoInfo->GeoTransform, 0.0, maxColumn),
+        _ApplyGeoTransform(imageData.GeoInfo->GeoTransform, maxRow, 0.0),
+        _ApplyGeoTransform(imageData.GeoInfo->GeoTransform, maxRow, maxColumn)};
 }
 
-ImageGeoBounds _BuildGeoBounds(const std::vector<double> &geoTransform, int rows, int columns) {
-    const auto corners = std::array<std::pair<double, double>, 4>{
-        _ApplyGeoTransform(geoTransform, 0.0, 0.0),
-        _ApplyGeoTransform(geoTransform, 0.0, static_cast<double>(columns)),
-        _ApplyGeoTransform(geoTransform, static_cast<double>(rows), 0.0),
-        _ApplyGeoTransform(geoTransform, static_cast<double>(rows), static_cast<double>(columns))};
-
-    ImageGeoBounds bounds = {
-        std::numeric_limits<double>::max(),
-        std::numeric_limits<double>::lowest(),
-        std::numeric_limits<double>::max(),
-        std::numeric_limits<double>::lowest()};
-
-    for (const auto &[latitude, longitude] : corners) {
-        bounds.MinLatitude = std::min(bounds.MinLatitude, latitude);
-        bounds.MaxLatitude = std::max(bounds.MaxLatitude, latitude);
-        bounds.MinLongitude = std::min(bounds.MinLongitude, longitude);
-        bounds.MaxLongitude = std::max(bounds.MaxLongitude, longitude);
-    }
-
-    return bounds;
+bool _HasGeoInfo(const Image &imageData) {
+    return imageData.GeoInfo.has_value() && imageData.GeoInfo->HasValidTransform();
 }
 
-cv::Scalar _BuildFillValue(int imageType, const cv::Vec3b &nonData) {
-    switch (CV_MAT_CN(imageType)) {
-    case 1:
-        return cv::Scalar(0);
-    case 3:
-        return cv::Scalar(nonData[0], nonData[1], nonData[2]);
-    case 4:
-        return cv::Scalar(nonData[0], nonData[1], nonData[2], 0);
-    default:
-        return cv::Scalar();
+bool _SameGeoTransform(const std::vector<double> &left, const std::vector<double> &right) {
+    if (left.size() != right.size()) {
+        return false;
     }
-}
 
-void _SetImagePixelValue(cv::Mat &targetImage, int targetRow, int targetColumn, const GeoImage &sourceImage, int sourceRow, int sourceColumn) {
-    switch (sourceImage.GetBandCounts()) {
-    case 1:
-        targetImage.at<unsigned char>(targetRow, targetColumn) = sourceImage.GetPixelValue<unsigned char>(sourceRow, sourceColumn);
-        break;
-    case 3:
-        targetImage.at<cv::Vec3b>(targetRow, targetColumn) = sourceImage.GetPixelValue<cv::Vec3b>(sourceRow, sourceColumn);
-        break;
-    case 4:
-        targetImage.at<cv::Vec4b>(targetRow, targetColumn) = sourceImage.GetPixelValue<cv::Vec4b>(sourceRow, sourceColumn);
-        break;
-    default:
-        break;
+    for (size_t index = 0; index < left.size(); ++index) {
+        if (std::abs(left[index] - right[index]) > kEpsilon) {
+            return false;
+        }
     }
+
+    return true;
 }
 
 } // namespace
 
-GeoCoordinateAlign::GeoCoordinateAlign(const std::vector<GeoImage> &imageDatas)
-    : PreprocessAlgorithmBase(imageDatas) {}
+GeoCoordinateAlign::GeoCoordinateAlign(std::vector<Image> imageDatas)
+    : PreprocessAlgorithmBase(std::move(imageDatas)) {}
 
-GeoCoordinateAlign::GeoCoordinateAlign(const std::vector<GeoImage> &imageDatas, const std::vector<CloudMask> &cloudMasks)
-    : PreprocessAlgorithmBase(imageDatas, cloudMasks) {}
+GeoCoordinateAlign::GeoCoordinateAlign(std::vector<Image> imageDatas, std::vector<Image> maskImages)
+    : PreprocessAlgorithmBase(std::move(imageDatas), std::move(maskImages)) {}
 
 void GeoCoordinateAlign::Execute() {
+    AlignedImages.clear();
+    AlignedMaskImages.clear();
+
     if (_ImageDatas.empty()) {
         SuperDebug::Warn("GeoCoordinateAlign received no input images.");
         return;
     }
 
-    _BuildUnifiedGrid();
-
-    AlignedImages.clear();
-    AlignedCloudMasks.clear();
-    AlignedImages.reserve(_ImageDatas.size());
-    if (!_CloudMasks.empty()) {
-        AlignedCloudMasks.reserve(_CloudMasks.size());
+    if (!_BuildUnifiedGrid()) {
+        return;
     }
 
-    const bool hasPairedMasks = !_CloudMasks.empty() && _CloudMasks.size() == _ImageDatas.size();
-    if (!_CloudMasks.empty() && !hasPairedMasks) {
-        SuperDebug::Warn("Cloud mask count does not match image count. Only images will be aligned.");
+    AlignedImages.reserve(_ImageDatas.size());
+    if (!_MaskImages.empty()) {
+        AlignedMaskImages.reserve(_MaskImages.size());
+    }
+
+    const bool hasPairedMasks = !_MaskImages.empty() && _MaskImages.size() == _ImageDatas.size();
+    if (!_MaskImages.empty() && !hasPairedMasks) {
+        SuperDebug::Warn("Mask image count does not match image count. Only images will be aligned.");
     }
 
     for (size_t index = 0; index < _ImageDatas.size(); ++index) {
-        const auto localGrid = _BuildLocalGridWindow(_ImageDatas[index]);
-        AlignedImages.emplace_back(_WarpGeoImage(_ImageDatas[index], localGrid));
+        if (!Detail::ValidateGeoImage(_ImageDatas[index], "GeoCoordinateAlign", "input image")) {
+            AlignedImages.clear();
+            AlignedMaskImages.clear();
+            return;
+        }
 
-        if (hasPairedMasks) {
-            AlignedCloudMasks.emplace_back(_WarpCloudMask(_CloudMasks[index], localGrid));
+        const auto localGrid = _BuildLocalGridWindow(_ImageDatas[index]);
+        const auto imageWarp = _PrepareWarp(_ImageDatas[index], localGrid);
+        AlignedImages.emplace_back(_WarpImage(_ImageDatas[index], imageWarp));
+
+        if (!hasPairedMasks) {
+            continue;
+        }
+
+        if (!Detail::ValidateGeoImage(_MaskImages[index], "GeoCoordinateAlign", "mask image")) {
+            AlignedImages.clear();
+            AlignedMaskImages.clear();
+            return;
+        }
+
+        if (_CanReuseWarpPreparation(_ImageDatas[index], _MaskImages[index])) {
+            AlignedMaskImages.emplace_back(_WarpMaskImage(_MaskImages[index], imageWarp));
+        } else {
+            AlignedMaskImages.emplace_back(_WarpMaskImage(_MaskImages[index], _PrepareWarp(_MaskImages[index], localGrid)));
         }
     }
 }
 
-void GeoCoordinateAlign::_BuildUnifiedGrid() {
+bool GeoCoordinateAlign::_BuildUnifiedGrid() {
     const auto &referenceImage = _ImageDatas.front();
-    if (referenceImage.GeoTransform.size() != 6) {
-        SuperDebug::Error("Reference image has no valid GeoTransform.");
-        return;
+    if (!_HasGeoInfo(referenceImage)) {
+        SuperDebug::Error("Reference image has no valid GeoInfo.");
+        return false;
     }
 
-    const auto pixelWidth = std::abs(referenceImage.GeoTransform[1]);
-    const auto pixelHeight = std::abs(referenceImage.GeoTransform[5]);
+    const auto pixelWidth = std::abs(referenceImage.GeoInfo->GeoTransform[1]);
+    const auto pixelHeight = std::abs(referenceImage.GeoInfo->GeoTransform[5]);
     if (pixelWidth < kEpsilon || pixelHeight < kEpsilon) {
         SuperDebug::Error("Reference image resolution is invalid.");
-        return;
+        return false;
     }
 
     double minLongitude = std::numeric_limits<double>::max();
     double maxLongitude = std::numeric_limits<double>::lowest();
     double minLatitude = std::numeric_limits<double>::max();
     double maxLatitude = std::numeric_limits<double>::lowest();
-
-    UnifiedGrid.Projection = referenceImage.Projection;
+    UnifiedGrid.Projection = referenceImage.GeoInfo->Projection;
 
     for (const auto &imageData : _ImageDatas) {
-        Util::ProjectionTransformer transformer(imageData.Projection, UnifiedGrid.Projection);
+        if (!_HasGeoInfo(imageData)) {
+            SuperDebug::Error("GeoCoordinateAlign requires GeoInfo for image: {}", imageData.ImageName);
+            return false;
+        }
+
+        Util::ProjectionTransformer transformer(imageData.GeoInfo->Projection, UnifiedGrid.Projection);
         if (!transformer.IsIdentity() && !transformer.IsValid()) {
             SuperDebug::Warn("Projection transform is unavailable for image: {}. Raw coordinates will be used.", imageData.ImageName);
         }
 
         for (auto [latitude, longitude] : _GetImageCorners(imageData)) {
-            if (!transformer.IsIdentity() && transformer.IsValid()) {
-                if (!transformer.Transform(latitude, longitude)) {
-                    continue;
-                }
+            if (!transformer.IsIdentity() && transformer.IsValid() && !transformer.Transform(latitude, longitude)) {
+                continue;
             }
 
             minLongitude = std::min(minLongitude, longitude);
@@ -179,18 +155,22 @@ void GeoCoordinateAlign::_BuildUnifiedGrid() {
     if (!std::isfinite(minLongitude) || !std::isfinite(maxLongitude) ||
         !std::isfinite(minLatitude) || !std::isfinite(maxLatitude)) {
         SuperDebug::Error("Failed to build unified grid bounds.");
-        return;
+        return false;
     }
 
     UnifiedGrid.GeoTransform = {minLongitude, pixelWidth, 0.0, maxLatitude, 0.0, -pixelHeight};
-    UnifiedGrid.Columns = std::max(1, static_cast<int>(std::ceil((maxLongitude - minLongitude) / pixelWidth)));
-    UnifiedGrid.Rows = std::max(1, static_cast<int>(std::ceil((maxLatitude - minLatitude) / pixelHeight)));
+    UnifiedGrid.Columns = std::max(1, static_cast<int>(std::ceil((maxLongitude - minLongitude) / pixelWidth)) + 1);
+    UnifiedGrid.Rows = std::max(1, static_cast<int>(std::ceil((maxLatitude - minLatitude) / pixelHeight)) + 1);
+    return true;
 }
 
-GeoCoordinateAlign::LocalGridWindow GeoCoordinateAlign::_BuildLocalGridWindow(const GeoImage &imageData) const {
+GeoCoordinateAlign::LocalGridWindow GeoCoordinateAlign::_BuildLocalGridWindow(const Image &imageData) const {
     LocalGridWindow localGrid = {};
-
-    Util::ProjectionTransformer transformer(imageData.Projection, UnifiedGrid.Projection);
+    Util::ProjectionTransformer transformer(imageData.GeoInfo->Projection, UnifiedGrid.Projection);
+    GeoInfo unifiedGridInfo = {};
+    unifiedGridInfo.GeoTransform = UnifiedGrid.GeoTransform;
+    unifiedGridInfo.Projection = UnifiedGrid.Projection;
+    unifiedGridInfo.RebuildBounds(UnifiedGrid.Rows, UnifiedGrid.Columns);
 
     double minRow = std::numeric_limits<double>::max();
     double maxRow = std::numeric_limits<double>::lowest();
@@ -198,15 +178,13 @@ GeoCoordinateAlign::LocalGridWindow GeoCoordinateAlign::_BuildLocalGridWindow(co
     double maxColumn = std::numeric_limits<double>::lowest();
 
     for (auto [latitude, longitude] : _GetImageCorners(imageData)) {
-        if (!transformer.IsIdentity() && transformer.IsValid()) {
-            if (!transformer.Transform(latitude, longitude)) {
-                continue;
-            }
+        if (!transformer.IsIdentity() && transformer.IsValid() && !transformer.Transform(latitude, longitude)) {
+            continue;
         }
 
         double row = 0.0;
         double column = 0.0;
-        if (!_WorldToPixel(UnifiedGrid.GeoTransform, latitude, longitude, row, column)) {
+        if (!unifiedGridInfo.TryWorldToPixel(latitude, longitude, row, column)) {
             continue;
         }
 
@@ -225,97 +203,99 @@ GeoCoordinateAlign::LocalGridWindow GeoCoordinateAlign::_BuildLocalGridWindow(co
         return localGrid;
     }
 
-    const auto alignedMinRow = std::floor(minRow);
-    const auto alignedMaxRow = std::ceil(maxRow);
-    const auto alignedMinColumn = std::floor(minColumn);
-    const auto alignedMaxColumn = std::ceil(maxColumn);
+    const int alignedMinRow = static_cast<int>(std::floor(minRow));
+    const int alignedMaxRow = static_cast<int>(std::ceil(maxRow));
+    const int alignedMinColumn = static_cast<int>(std::floor(minColumn));
+    const int alignedMaxColumn = static_cast<int>(std::ceil(maxColumn));
 
-    auto [originLatitude, originLongitude] = _ApplyGeoTransform(UnifiedGrid.GeoTransform, alignedMinRow, alignedMinColumn);
+    const auto [originLatitude, originLongitude] = _ApplyGeoTransform(UnifiedGrid.GeoTransform, alignedMinRow, alignedMinColumn);
     localGrid.GeoTransform = {originLongitude, UnifiedGrid.GeoTransform[1], 0.0, originLatitude, 0.0, UnifiedGrid.GeoTransform[5]};
-    localGrid.Rows = std::max(1, static_cast<int>(alignedMaxRow - alignedMinRow));
-    localGrid.Columns = std::max(1, static_cast<int>(alignedMaxColumn - alignedMinColumn));
-
+    localGrid.Rows = std::max(1, alignedMaxRow - alignedMinRow + 1);
+    localGrid.Columns = std::max(1, alignedMaxColumn - alignedMinColumn + 1);
     return localGrid;
 }
 
-GeoImage GeoCoordinateAlign::_WarpGeoImage(const GeoImage &imageData, const LocalGridWindow &localGrid) const {
-    cv::Mat alignedImage(localGrid.Rows, localGrid.Columns, imageData.GetImageType(), _BuildFillValue(imageData.GetImageType(), imageData.NonData));
-    Util::ProjectionTransformer targetToSource(UnifiedGrid.Projection, imageData.Projection);
+bool GeoCoordinateAlign::_CanReuseWarpPreparation(const Image &imageData, const Image &otherImage) const {
+    return imageData.Height() == otherImage.Height() &&
+           imageData.Width() == otherImage.Width() &&
+           _HasGeoInfo(imageData) &&
+           _HasGeoInfo(otherImage) &&
+           imageData.GeoInfo->Projection == otherImage.GeoInfo->Projection &&
+           _SameGeoTransform(imageData.GeoInfo->GeoTransform, otherImage.GeoInfo->GeoTransform);
+}
 
+GeoCoordinateAlign::WarpPreparation GeoCoordinateAlign::_PrepareWarp(const Image &imageData, const LocalGridWindow &localGrid) const {
+    WarpPreparation warpPreparation = {};
+    warpPreparation.LocalGrid = localGrid;
+    warpPreparation.MapX = cv::Mat(localGrid.Rows, localGrid.Columns, CV_32FC1, cv::Scalar(-1.0f));
+    warpPreparation.MapY = cv::Mat(localGrid.Rows, localGrid.Columns, CV_32FC1, cv::Scalar(-1.0f));
+
+    Util::ProjectionTransformer targetToSource(UnifiedGrid.Projection, imageData.GeoInfo->Projection);
     if (!targetToSource.IsIdentity() && !targetToSource.IsValid()) {
         SuperDebug::Warn("Projection transform is unavailable while warping image: {}. Raw coordinates will be used.", imageData.ImageName);
     }
 
     for (int row = 0; row < localGrid.Rows; ++row) {
+        float *mapXPtr = warpPreparation.MapX.ptr<float>(row);
+        float *mapYPtr = warpPreparation.MapY.ptr<float>(row);
         for (int column = 0; column < localGrid.Columns; ++column) {
             auto [latitude, longitude] = _ApplyGeoTransform(localGrid.GeoTransform, row, column);
-            if (!targetToSource.IsIdentity() && targetToSource.IsValid()) {
-                if (!targetToSource.Transform(latitude, longitude)) {
-                    continue;
-                }
+            if (!targetToSource.IsIdentity() && targetToSource.IsValid() && !targetToSource.Transform(latitude, longitude)) {
+                continue;
             }
 
             double sourceRow = 0.0;
             double sourceColumn = 0.0;
-            if (!_WorldToPixel(imageData.GeoTransform, latitude, longitude, sourceRow, sourceColumn)) {
+            if (!imageData.GeoInfo->TryWorldToPixel(latitude, longitude, sourceRow, sourceColumn)) {
                 continue;
             }
 
-            const auto nearestRow = static_cast<int>(std::lround(sourceRow));
-            const auto nearestColumn = static_cast<int>(std::lround(sourceColumn));
-            if (imageData.IsOutOfBounds(nearestRow, nearestColumn)) {
+            if (sourceRow < 0.0 || sourceRow >= static_cast<double>(imageData.Height()) ||
+                sourceColumn < 0.0 || sourceColumn >= static_cast<double>(imageData.Width())) {
                 continue;
             }
 
-            _SetImagePixelValue(alignedImage, row, column, imageData, nearestRow, nearestColumn);
+            mapXPtr[column] = static_cast<float>(sourceColumn);
+            mapYPtr[column] = static_cast<float>(sourceRow);
         }
     }
 
-    GeoImage result(alignedImage, imageData.ImageName);
-    result.NonData = imageData.NonData;
-    result.GeoTransform = localGrid.GeoTransform;
-    result.Projection = UnifiedGrid.Projection;
-    result.ImageBounds = _BuildGeoBounds(localGrid.GeoTransform, localGrid.Rows, localGrid.Columns);
+    return warpPreparation;
+}
+
+Image GeoCoordinateAlign::_WarpImage(const Image &imageData, const WarpPreparation &warpPreparation) const {
+    cv::Mat alignedImage;
+    cv::remap(
+        imageData.ImageData,
+        alignedImage,
+        warpPreparation.MapX,
+        warpPreparation.MapY,
+        cv::INTER_NEAREST,
+        cv::BORDER_CONSTANT,
+        imageData.GetFillScalarForOpenCV());
+
+    Image result(alignedImage, imageData.ImageName);
+    result.NoDataValues = imageData.NoDataValues;
+    result.GeoInfo = GeoInfo{warpPreparation.LocalGrid.GeoTransform, UnifiedGrid.Projection, {}};
+    result.GeoInfo->RebuildBounds(result.Height(), result.Width());
     return result;
 }
 
-CloudMask GeoCoordinateAlign::_WarpCloudMask(const CloudMask &cloudMask, const LocalGridWindow &localGrid) const {
-    cv::Mat alignedMask(localGrid.Rows, localGrid.Columns, cloudMask.GetImageType(), cv::Scalar(0));
-    Util::ProjectionTransformer targetToSource(UnifiedGrid.Projection, cloudMask.Projection);
+Image GeoCoordinateAlign::_WarpMaskImage(const Image &maskImage, const WarpPreparation &warpPreparation) const {
+    cv::Mat alignedMask;
+    cv::remap(
+        maskImage.ImageData,
+        alignedMask,
+        warpPreparation.MapX,
+        warpPreparation.MapY,
+        cv::INTER_NEAREST,
+        cv::BORDER_CONSTANT,
+        cv::Scalar::all(kMaskFillValue));
 
-    if (!targetToSource.IsIdentity() && !targetToSource.IsValid()) {
-        SuperDebug::Warn("Projection transform is unavailable while warping cloud mask: {}. Raw coordinates will be used.", cloudMask.ImageName);
-    }
-
-    for (int row = 0; row < localGrid.Rows; ++row) {
-        for (int column = 0; column < localGrid.Columns; ++column) {
-            auto [latitude, longitude] = _ApplyGeoTransform(localGrid.GeoTransform, row, column);
-            if (!targetToSource.IsIdentity() && targetToSource.IsValid()) {
-                if (!targetToSource.Transform(latitude, longitude)) {
-                    continue;
-                }
-            }
-
-            double sourceRow = 0.0;
-            double sourceColumn = 0.0;
-            if (!_WorldToPixel(cloudMask.GeoTransform, latitude, longitude, sourceRow, sourceColumn)) {
-                continue;
-            }
-
-            const auto nearestRow = static_cast<int>(std::lround(sourceRow));
-            const auto nearestColumn = static_cast<int>(std::lround(sourceColumn));
-            if (cloudMask.IsOutOfBounds(nearestRow, nearestColumn)) {
-                continue;
-            }
-
-            alignedMask.at<unsigned char>(row, column) = cloudMask.GetPixelValue<unsigned char>(nearestRow, nearestColumn);
-        }
-    }
-
-    CloudMask result(alignedMask, cloudMask.ImageName);
-    result.GeoTransform = localGrid.GeoTransform;
-    result.Projection = UnifiedGrid.Projection;
-    result.ImageBounds = _BuildGeoBounds(localGrid.GeoTransform, localGrid.Rows, localGrid.Columns);
+    Image result(alignedMask, maskImage.ImageName);
+    result.NoDataValues = maskImage.NoDataValues;
+    result.GeoInfo = GeoInfo{warpPreparation.LocalGrid.GeoTransform, UnifiedGrid.Projection, {}};
+    result.GeoInfo->RebuildBounds(result.Height(), result.Width());
     return result;
 }
 

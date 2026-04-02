@@ -3,8 +3,8 @@
 
 namespace RSPIP::Algorithm::MosaicAlgorithm {
 
-AdaptiveColorBalancePatch::AdaptiveColorBalancePatch(const std::vector<GeoImage> &imageDatas, const std::vector<CloudMask> &cloudMasks)
-    : AdaptiveStripMosaicBase(imageDatas, cloudMasks) {}
+AdaptiveColorBalancePatch::AdaptiveColorBalancePatch(std::vector<Image> imageDatas, std::vector<Image> maskImages)
+    : AdaptiveStripMosaicBase(std::move(imageDatas), std::move(maskImages)) {}
 
 const char *AdaptiveColorBalancePatch::_AlgorithmName() const {
     return "AdaptiveColorBalancePatch";

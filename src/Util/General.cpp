@@ -11,7 +11,7 @@ double BGRToGray(const cv::Vec3b &pixelValue) {
     return 0.299 * pixelValue[2] + 0.587 * pixelValue[1] + 0.114 * pixelValue[0];
 }
 
-bool IsGeoImage(const std::string &imagePath) {
+bool IsGeoRasterPath(const std::string &imagePath) {
     auto ext = std::filesystem::path(imagePath).extension().string();
     std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
     return (ext == ".tif" || ext == ".tiff");
@@ -78,7 +78,7 @@ std::vector<std::string> GetTifImagePathFromPath(const std::string &path) {
             continue;
         }
         auto filePath = entry.path().string();
-        if (IsGeoImage(filePath)) {
+        if (IsGeoRasterPath(filePath)) {
             imagePaths.push_back(filePath);
         }
     }

@@ -5,8 +5,8 @@ namespace RSPIP::Algorithm::PreprocessAlgorithm {
 
 class GeoCoordinateAlign : public PreprocessAlgorithmBase {
   public:
-    explicit GeoCoordinateAlign(const std::vector<GeoImage> &imageDatas);
-    GeoCoordinateAlign(const std::vector<GeoImage> &imageDatas, const std::vector<CloudMask> &cloudMasks);
+    explicit GeoCoordinateAlign(std::vector<Image> imageDatas);
+    GeoCoordinateAlign(std::vector<Image> imageDatas, std::vector<Image> maskImages);
 
     void Execute() override;
 
@@ -17,11 +17,19 @@ class GeoCoordinateAlign : public PreprocessAlgorithmBase {
         int Columns = 0;
     };
 
+    struct WarpPreparation {
+        LocalGridWindow LocalGrid;
+        cv::Mat MapX;
+        cv::Mat MapY;
+    };
+
   private:
-    void _BuildUnifiedGrid();
-    LocalGridWindow _BuildLocalGridWindow(const GeoImage &imageData) const;
-    GeoImage _WarpGeoImage(const GeoImage &imageData, const LocalGridWindow &localGrid) const;
-    CloudMask _WarpCloudMask(const CloudMask &cloudMask, const LocalGridWindow &localGrid) const;
+    bool _BuildUnifiedGrid();
+    LocalGridWindow _BuildLocalGridWindow(const Image &imageData) const;
+    bool _CanReuseWarpPreparation(const Image &imageData, const Image &otherImage) const;
+    WarpPreparation _PrepareWarp(const Image &imageData, const LocalGridWindow &localGrid) const;
+    Image _WarpImage(const Image &imageData, const WarpPreparation &warpPreparation) const;
+    Image _WarpMaskImage(const Image &maskImage, const WarpPreparation &warpPreparation) const;
 };
 
 } // namespace RSPIP::Algorithm::PreprocessAlgorithm

@@ -5,7 +5,7 @@ namespace RSPIP::Algorithm::MosaicAlgorithm {
 
 class AdaptiveColorBalancePatch : public Detail::AdaptiveStripMosaicBase {
   public:
-    AdaptiveColorBalancePatch(const std::vector<GeoImage> &imageDatas, const std::vector<CloudMask> &cloudMasks);
+    AdaptiveColorBalancePatch(std::vector<Image> imageDatas, std::vector<Image> maskImages);
 
     using Detail::AdaptiveStripMosaicBase::SetStripWidth;
 

@@ -5,7 +5,7 @@ namespace RSPIP::Algorithm::MosaicAlgorithm {
 
 class AdaptivePatch : public Detail::AdaptiveStripMosaicBase {
   public:
-    AdaptivePatch(const std::vector<GeoImage> &imageDatas, const std::vector<CloudMask> &cloudMasks);
+    AdaptivePatch(std::vector<Image> imageDatas, std::vector<Image> maskImages);
 
     using Detail::AdaptiveStripMosaicBase::SetStripWidth;
 

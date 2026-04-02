@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include "gdal.h"
 #include <opencv2/core/cvdef.h>
 #include <opencv2/core/types.hpp>
@@ -9,16 +9,9 @@ namespace RSPIP::Util {
 
 static const std::vector<std::pair<int, int>> Directions = {{-1, -1}, {-1, 0}, {-1, 1}, {0, 1}, {1, 1}, {1, 0}, {1, -1}, {0, -1}};
 
-enum class ImageType {
-    NormalImage,
-    GeoImage,
-    MaskImage,
-    CloudMask
-};
-
 double BGRToGray(const cv::Vec3b &pixelValue);
 
-bool IsGeoImage(const std::string &imagePath);
+bool IsGeoRasterPath(const std::string &imagePath);
 
 GDALDataType CVTypeToGDALType(int cvType);
 

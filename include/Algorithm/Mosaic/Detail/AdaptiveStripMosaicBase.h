@@ -1,15 +1,15 @@
 #pragma once
 #include "Algorithm/Mosaic/MosaicAlgorithmBase.h"
-#include "Basic/CloudMask.h"
 #include <array>
 #include <set>
+#include <string>
 #include <vector>
 
 namespace RSPIP::Algorithm::MosaicAlgorithm::Detail {
 
 class AdaptiveStripMosaicBase : public MosaicAlgorithmBase {
   public:
-    AdaptiveStripMosaicBase(const std::vector<GeoImage> &imageDatas, const std::vector<CloudMask> &cloudMasks);
+    AdaptiveStripMosaicBase(std::vector<Image> imageDatas, std::vector<Image> maskImages);
 
     void SetStripWidth(int newStripWidth) {
         _StripWidth = newStripWidth < 1 ? 1 : newStripWidth;
@@ -32,14 +32,17 @@ class AdaptiveStripMosaicBase : public MosaicAlgorithmBase {
     };
 
     struct InputBundle {
-        GeoImage Image;
-        CloudMask Mask;
+        Image SourceImage;
+        Image Mask;
+        cv::Mat SelectionMask;
         cv::Mat ValidMask;
         cv::Mat GrayImage;
         double ClearRatio = 0.0;
         size_t OriginalIndex = 0;
         int RowOffset = 0;
         int ColumnOffset = 0;
+        bool IsEnabled = true;
+        std::string DisabledReason = {};
     };
 
     struct SeedRegion {
@@ -127,7 +130,6 @@ class AdaptiveStripMosaicBase : public MosaicAlgorithmBase {
 
     std::pair<int, int> _GetNormalOffset(ExpandDirection direction) const;
     std::pair<int, int> _GetTangentOffset(ExpandDirection direction) const;
-    const char *_GetDirectionName(ExpandDirection direction) const;
     void _SetFilledPixel(int mosaicRow, int mosaicColumn, const cv::Vec3b &pixelValue, unsigned char grayValue, int ownerInputIndex);
 
   protected:
@@ -142,6 +144,11 @@ class AdaptiveStripMosaicBase : public MosaicAlgorithmBase {
     size_t _GlobalValidPixelCount = 0;
     std::array<double, 3> _GlobalValidMeans = {0.0, 0.0, 0.0};
     std::array<double, 3> _GlobalValidStdDevs = {0.0, 0.0, 0.0};
+    mutable cv::Mat _CandidateStripBuffer;
+    mutable cv::Mat _CandidateGrayBuffer;
+    mutable cv::Mat _CandidateMaskBuffer;
+    mutable cv::Mat _CandidateNoDataMaskBuffer;
+    mutable cv::Mat _BalancedStripBuffer;
     int _StripWidth = 1;
 };
 

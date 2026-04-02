@@ -1,4 +1,6 @@
 #include "Algorithm/Mosaic/Detail/AdaptiveStripMosaicBase.h"
+#include "Algorithm/Detail/MaskPolicies.h"
+#include "Basic/RegionExtraction.h"
 #include "Util/General.h"
 #include "Util/SuperDebug.hpp"
 #include <algorithm>
@@ -16,21 +18,15 @@ namespace {
 constexpr unsigned char kFilledValue = 255;
 constexpr double kCorrelationEpsilon = 1e-9;
 
-unsigned char _GetCloudMaskValue(const CloudMask &cloudMask, int row, int column) {
-    if (cloudMask.ImageData.empty() || row < 0 || row >= cloudMask.Height() || column < 0 || column >= cloudMask.Width()) {
-        return kFilledValue;
-    }
+cv::Mat _CreateConstantMask(const Image &image, unsigned char value) {
+    return cv::Mat(image.Height(), image.Width(), CV_8UC1, cv::Scalar(value));
+}
 
-    switch (cloudMask.GetBandCounts()) {
-    case 1:
-        return cloudMask.GetPixelValue<unsigned char>(row, column);
-    case 3:
-        return cloudMask.GetPixelValue<cv::Vec3b>(row, column)[0];
-    case 4:
-        return cloudMask.GetPixelValue<cv::Vec4b>(row, column)[0];
-    default:
+unsigned char _GetSelectionMaskValue(const cv::Mat &selectionMask, int row, int column) {
+    if (selectionMask.empty() || row < 0 || row >= selectionMask.rows || column < 0 || column >= selectionMask.cols) {
         return kFilledValue;
     }
+    return selectionMask.at<unsigned char>(row, column);
 }
 
 bool _RectIsPreferred(const cv::Rect &candidate, const cv::Rect &currentBest) {
@@ -71,21 +67,21 @@ double _ComputePearsonCorrelation(size_t sampleCount, double sumX, double sumY, 
 
 } // namespace
 
-AdaptiveStripMosaicBase::AdaptiveStripMosaicBase(const std::vector<GeoImage> &imageDatas, const std::vector<CloudMask> &cloudMasks)
-    : MosaicAlgorithmBase(imageDatas),
+AdaptiveStripMosaicBase::AdaptiveStripMosaicBase(std::vector<Image> imageDatas, std::vector<Image> maskImages)
+    : MosaicAlgorithmBase(std::move(imageDatas)),
       _Inputs(),
       _FilledMask(),
       _OwnerMap(),
       _BoundaryFrontiers(),
       _ResultGray(),
       _FilledPixelCount(0),
-      _HasCompleteMaskSet(!cloudMasks.empty() && cloudMasks.size() == imageDatas.size()) {
-    _Inputs.reserve(imageDatas.size());
-    for (size_t index = 0; index < imageDatas.size(); ++index) {
+      _HasCompleteMaskSet(!maskImages.empty() && maskImages.size() == _MosaicImages.size()) {
+    _Inputs.reserve(_MosaicImages.size());
+    for (size_t index = 0; index < _MosaicImages.size(); ++index) {
         InputBundle bundle = {};
-        bundle.Image = imageDatas[index];
-        if (index < cloudMasks.size()) {
-            bundle.Mask = cloudMasks[index];
+        bundle.SourceImage = _MosaicImages[index];
+        if (index < maskImages.size()) {
+            bundle.Mask = maskImages[index];
         }
         bundle.OriginalIndex = index;
         _Inputs.emplace_back(std::move(bundle));
@@ -152,11 +148,13 @@ void AdaptiveStripMosaicBase::Execute() {
 }
 
 void AdaptiveStripMosaicBase::_PrepareInputs() {
-    const bool hasMosaicGeoTransform = AlgorithmResult.GeoTransform.size() >= 6 &&
-                                       std::abs(AlgorithmResult.GeoTransform[1]) > kCorrelationEpsilon &&
-                                       std::abs(AlgorithmResult.GeoTransform[5]) > kCorrelationEpsilon;
-    const double mosaicPixelWidth = hasMosaicGeoTransform ? AlgorithmResult.GeoTransform[1] : 1.0;
-    const double mosaicPixelHeight = hasMosaicGeoTransform ? std::abs(AlgorithmResult.GeoTransform[5]) : 1.0;
+    const auto maskPolicy = RSPIP::Algorithm::Detail::DefaultBinaryMaskPolicy();
+    const bool hasMosaicGeoTransform = AlgorithmResult.GeoInfo.has_value() &&
+                                       AlgorithmResult.GeoInfo->GeoTransform.size() >= 6 &&
+                                       std::abs(AlgorithmResult.GeoInfo->GeoTransform[1]) > kCorrelationEpsilon &&
+                                       std::abs(AlgorithmResult.GeoInfo->GeoTransform[5]) > kCorrelationEpsilon;
+    const double mosaicPixelWidth = hasMosaicGeoTransform ? AlgorithmResult.GeoInfo->GeoTransform[1] : 1.0;
+    const double mosaicPixelHeight = hasMosaicGeoTransform ? std::abs(AlgorithmResult.GeoInfo->GeoTransform[5]) : 1.0;
     const bool needGlobalStatistics = _NeedsGlobalValidStatistics();
     std::array<double, 3> globalValidSums = {0.0, 0.0, 0.0};
     std::array<double, 3> globalValidSquaredSums = {0.0, 0.0, 0.0};
@@ -167,22 +165,51 @@ void AdaptiveStripMosaicBase::_PrepareInputs() {
 
     for (auto &input : _Inputs) {
         _OnInputBundlePrepared(input);
-        input.ValidMask = cv::Mat::zeros(input.Image.Height(), input.Image.Width(), CV_8UC1);
-        input.GrayImage = cv::Mat::zeros(input.Image.Height(), input.Image.Width(), CV_8UC1);
+        input.IsEnabled = true;
+        input.DisabledReason.clear();
 
-        if (hasMosaicGeoTransform && input.Image.GeoTransform.size() >= 6) {
-            const bool sameResolution = std::abs(input.Image.GeoTransform[1] - AlgorithmResult.GeoTransform[1]) <= kCorrelationEpsilon &&
-                                        std::abs(std::abs(input.Image.GeoTransform[5]) - mosaicPixelHeight) <= kCorrelationEpsilon;
-            const bool zeroRotation = std::abs(input.Image.GeoTransform[2]) <= kCorrelationEpsilon &&
-                                      std::abs(input.Image.GeoTransform[4]) <= kCorrelationEpsilon &&
-                                      std::abs(AlgorithmResult.GeoTransform[2]) <= kCorrelationEpsilon &&
-                                      std::abs(AlgorithmResult.GeoTransform[4]) <= kCorrelationEpsilon;
+        if (input.Mask.ImageData.empty()) {
+            input.SelectionMask = cv::Mat::zeros(input.SourceImage.Height(), input.SourceImage.Width(), CV_8UC1);
+        } else if (input.Mask.Height() != input.SourceImage.Height() || input.Mask.Width() != input.SourceImage.Width()) {
+            input.SelectionMask = _CreateConstantMask(input.SourceImage, kFilledValue);
+            input.IsEnabled = false;
+            input.DisabledReason = "mask_size_mismatch";
+            SuperDebug::Error(
+                "{} input {} mask size mismatch. image={}x{}, mask={}x{}. The input will be disabled.",
+                _AlgorithmName(),
+                input.OriginalIndex,
+                input.SourceImage.Width(),
+                input.SourceImage.Height(),
+                input.Mask.Width(),
+                input.Mask.Height());
+        } else {
+            input.SelectionMask = BuildSelectionMask(input.Mask, maskPolicy);
+            if (input.SelectionMask.empty()) {
+                input.SelectionMask = _CreateConstantMask(input.SourceImage, kFilledValue);
+                input.IsEnabled = false;
+                input.DisabledReason = "mask_build_failed";
+                SuperDebug::Error(
+                    "{} input {} mask selection build failed. The input will be disabled.",
+                    _AlgorithmName(),
+                    input.OriginalIndex);
+            }
+        }
+        input.ValidMask = cv::Mat::zeros(input.SourceImage.Height(), input.SourceImage.Width(), CV_8UC1);
+        input.GrayImage = cv::Mat::zeros(input.SourceImage.Height(), input.SourceImage.Width(), CV_8UC1);
+
+        if (hasMosaicGeoTransform && input.SourceImage.GeoInfo.has_value() && input.SourceImage.GeoInfo->GeoTransform.size() >= 6) {
+            const bool sameResolution = std::abs(input.SourceImage.GeoInfo->GeoTransform[1] - AlgorithmResult.GeoInfo->GeoTransform[1]) <= kCorrelationEpsilon &&
+                                        std::abs(std::abs(input.SourceImage.GeoInfo->GeoTransform[5]) - mosaicPixelHeight) <= kCorrelationEpsilon;
+            const bool zeroRotation = std::abs(input.SourceImage.GeoInfo->GeoTransform[2]) <= kCorrelationEpsilon &&
+                                      std::abs(input.SourceImage.GeoInfo->GeoTransform[4]) <= kCorrelationEpsilon &&
+                                      std::abs(AlgorithmResult.GeoInfo->GeoTransform[2]) <= kCorrelationEpsilon &&
+                                      std::abs(AlgorithmResult.GeoInfo->GeoTransform[4]) <= kCorrelationEpsilon;
             if (!sameResolution || !zeroRotation) {
                 SuperDebug::Warn("{} input {} does not fully match the unified grid assumption.", _AlgorithmName(), input.OriginalIndex);
             }
 
-            input.ColumnOffset = static_cast<int>(std::lround((input.Image.GeoTransform[0] - AlgorithmResult.GeoTransform[0]) / mosaicPixelWidth));
-            input.RowOffset = static_cast<int>(std::lround((AlgorithmResult.GeoTransform[3] - input.Image.GeoTransform[3]) / mosaicPixelHeight));
+            input.ColumnOffset = static_cast<int>(std::lround((input.SourceImage.GeoInfo->GeoTransform[0] - AlgorithmResult.GeoInfo->GeoTransform[0]) / mosaicPixelWidth));
+            input.RowOffset = static_cast<int>(std::lround((AlgorithmResult.GeoInfo->GeoTransform[3] - input.SourceImage.GeoInfo->GeoTransform[3]) / mosaicPixelHeight));
         } else {
             input.ColumnOffset = 0;
             input.RowOffset = 0;
@@ -190,20 +217,20 @@ void AdaptiveStripMosaicBase::_PrepareInputs() {
 
         int clearPixels = 0;
         int extentPixels = 0;
-        for (int row = 0; row < input.Image.Height(); ++row) {
-            const auto *imagePtr = input.Image.ImageData.ptr<cv::Vec3b>(row);
+        for (int row = 0; row < input.SourceImage.Height(); ++row) {
+            const auto *imagePtr = input.SourceImage.ImageData.ptr<cv::Vec3b>(row);
             auto *validPtr = input.ValidMask.ptr<unsigned char>(row);
             auto *grayPtr = input.GrayImage.ptr<unsigned char>(row);
 
-            for (int column = 0; column < input.Image.Width(); ++column) {
+            for (int column = 0; column < input.SourceImage.Width(); ++column) {
                 const auto &pixelValue = imagePtr[column];
-                if (pixelValue == input.Image.NonData) {
+                if (input.SourceImage.IsNoDataPixel(row, column)) {
                     continue;
                 }
 
                 grayPtr[column] = static_cast<unsigned char>(Util::BGRToGray(pixelValue));
                 ++extentPixels;
-                if (_GetCloudMaskValue(input.Mask, row, column) == input.Mask.NonData[0]) {
+                if (_GetSelectionMaskValue(input.SelectionMask, row, column) == 0) {
                     validPtr[column] = kFilledValue;
                     ++clearPixels;
                     if (needGlobalStatistics) {
@@ -219,9 +246,21 @@ void AdaptiveStripMosaicBase::_PrepareInputs() {
         }
 
         input.ClearRatio = extentPixels == 0 ? 0.0 : static_cast<double>(clearPixels) / static_cast<double>(extentPixels);
-        SuperDebug::Info(
-            "{} input {} prepared: extent_pixels={}, clear_pixels={}, clear_ratio={:.4f}, offset=({}, {}).",
-            _AlgorithmName(), input.OriginalIndex, extentPixels, clearPixels, input.ClearRatio, input.RowOffset, input.ColumnOffset);
+        if (input.IsEnabled) {
+            SuperDebug::Info(
+                "{} input {} prepared: extent_pixels={}, clear_pixels={}, clear_ratio={:.4f}, offset=({}, {}), status=enabled.",
+                _AlgorithmName(), input.OriginalIndex, extentPixels, clearPixels, input.ClearRatio, input.RowOffset, input.ColumnOffset);
+            if (clearPixels == 0) {
+                SuperDebug::Warn(
+                    "{} input {} has no clear pixels after mask filtering and will be skipped as a seed candidate.",
+                    _AlgorithmName(),
+                    input.OriginalIndex);
+            }
+        } else {
+            SuperDebug::Warn(
+                "{} input {} prepared: extent_pixels={}, clear_pixels={}, clear_ratio={:.4f}, offset=({}, {}), status=disabled, reason={}.",
+                _AlgorithmName(), input.OriginalIndex, extentPixels, clearPixels, input.ClearRatio, input.RowOffset, input.ColumnOffset, input.DisabledReason);
+        }
     }
 
     if (!needGlobalStatistics) {
@@ -259,8 +298,8 @@ void AdaptiveStripMosaicBase::_FallbackToPlainMosaic() {
 void AdaptiveStripMosaicBase::_SortInputsByLongitude() {
     std::stable_sort(_Inputs.begin(), _Inputs.end(),
                      [](const InputBundle &left, const InputBundle &right) {
-                         const auto leftLongitude = left.Image.GetLongitude(0, 0);
-                         const auto rightLongitude = right.Image.GetLongitude(0, 0);
+                         const auto leftLongitude = left.SourceImage.GeoInfo.has_value() ? left.SourceImage.GeoInfo->GetLongitude(0, 0) : std::numeric_limits<double>::max();
+                         const auto rightLongitude = right.SourceImage.GeoInfo.has_value() ? right.SourceImage.GeoInfo->GetLongitude(0, 0) : std::numeric_limits<double>::max();
                          if (std::abs(leftLongitude - rightLongitude) > kCorrelationEpsilon) {
                              return leftLongitude < rightLongitude;
                          }
@@ -273,12 +312,29 @@ bool AdaptiveStripMosaicBase::_InitializeSeedRegion() {
     bool foundSeed = false;
 
     for (size_t index = 0; index < _Inputs.size(); ++index) {
+        if (!_Inputs[index].IsEnabled) {
+            SuperDebug::Warn(
+                "{} seed candidate input {} skipped because it is disabled: {}.",
+                _AlgorithmName(),
+                _Inputs[index].OriginalIndex,
+                _Inputs[index].DisabledReason);
+            continue;
+        }
+
+        if (_Inputs[index].ValidMask.empty() || cv::countNonZero(_Inputs[index].ValidMask) == 0) {
+            SuperDebug::Warn(
+                "{} seed candidate input {} skipped because it has no valid clear pixels.",
+                _AlgorithmName(),
+                _Inputs[index].OriginalIndex);
+            continue;
+        }
+
         const auto rectangle = _FindLargestValidRectangle(_Inputs[index].ValidMask);
         const int mosaicRow = rectangle.y + _Inputs[index].RowOffset;
         const int mosaicColumn = rectangle.x + _Inputs[index].ColumnOffset;
         SuperDebug::Info(
             "{} seed candidate input {} ({}): clear_ratio={:.4f}, image_rect=(row={}, col={}, h={}, w={}), mosaic_rect=(row={}, col={}, h={}, w={}), area={}.",
-            _AlgorithmName(), _Inputs[index].OriginalIndex, _Inputs[index].Image.ImageName, _Inputs[index].ClearRatio,
+            _AlgorithmName(), _Inputs[index].OriginalIndex, _Inputs[index].SourceImage.ImageName, _Inputs[index].ClearRatio,
             rectangle.y, rectangle.x, rectangle.height, rectangle.width,
             mosaicRow, mosaicColumn, rectangle.height, rectangle.width, rectangle.area());
         if (rectangle.area() <= 0) {
@@ -308,8 +364,8 @@ bool AdaptiveStripMosaicBase::_InitializeSeedRegion() {
                 continue;
             }
 
-            const auto pixelValue = seedInput.Image.GetPixelValue<cv::Vec3b>(row, column);
-            if (pixelValue == seedInput.Image.NonData) {
+            const auto pixelValue = seedInput.SourceImage.GetPixelValue<cv::Vec3b>(row, column);
+            if (seedInput.SourceImage.IsNoDataPixel(row, column)) {
                 continue;
             }
 
@@ -319,7 +375,7 @@ bool AdaptiveStripMosaicBase::_InitializeSeedRegion() {
 
     SuperDebug::Info(
         "{} seed selected by max_rect_area from input {} ({}): clear_ratio={:.4f}, image_rect=(row={}, col={}, h={}, w={}), mosaic_rect=(row={}, col={}, h={}, w={}), area={}.",
-        _AlgorithmName(), seedInput.OriginalIndex, seedInput.Image.ImageName, bestSeed.ClearRatio,
+        _AlgorithmName(), seedInput.OriginalIndex, seedInput.SourceImage.ImageName, bestSeed.ClearRatio,
         bestSeed.Rectangle.y, bestSeed.Rectangle.x, bestSeed.Rectangle.height, bestSeed.Rectangle.width,
         selectedMosaicRow, selectedMosaicColumn, bestSeed.Rectangle.height, bestSeed.Rectangle.width,
         bestSeed.Rectangle.area());
@@ -426,8 +482,8 @@ std::vector<AdaptiveStripMosaicBase::BoundarySegment> AdaptiveStripMosaicBase::_
     for (const int key : frontier) {
         const auto [row, column] = _DecodeBoundaryKey(direction, key);
         const bool continueCurrentSegment = hasCurrentSegment &&
-                                           ((horizontalSegments && row == previousRow && column == previousColumn + 1) ||
-                                            (!horizontalSegments && column == previousColumn && row == previousRow + 1));
+                                            ((horizontalSegments && row == previousRow && column == previousColumn + 1) ||
+                                             (!horizontalSegments && column == previousColumn && row == previousRow + 1));
         if (!continueCurrentSegment) {
             if (hasCurrentSegment) {
                 segments.push_back(currentSegment);
@@ -558,8 +614,8 @@ AdaptiveStripMosaicBase::CandidatePatch AdaptiveStripMosaicBase::_EvaluateCandid
 
     const auto [normalRow, normalColumn] = _GetNormalOffset(direction);
     const auto [tangentRow, tangentColumn] = _GetTangentOffset(direction);
-    const int imageRows = input.Image.Height();
-    const int imageColumns = input.Image.Width();
+    const int imageRows = input.SourceImage.Height();
+    const int imageColumns = input.SourceImage.Width();
 
     double sumMosaic = 0.0;
     double sumInput = 0.0;
@@ -627,8 +683,8 @@ AdaptiveStripMosaicBase::CandidatePatch AdaptiveStripMosaicBase::_EvaluateCandid
 void AdaptiveStripMosaicBase::_CopyPatchToResult(const InputBundle &input, ExpandDirection direction, int boundaryRow, int boundaryColumn, int length, size_t ownerInputIndex) {
     const auto [normalRow, normalColumn] = _GetNormalOffset(direction);
     const auto [tangentRow, tangentColumn] = _GetTangentOffset(direction);
-    const int imageRows = input.Image.Height();
-    const int imageColumns = input.Image.Width();
+    const int imageRows = input.SourceImage.Height();
+    const int imageColumns = input.SourceImage.Width();
 
     int currentBoundaryRow = boundaryRow;
     int currentBoundaryColumn = boundaryColumn;
@@ -645,7 +701,7 @@ void AdaptiveStripMosaicBase::_CopyPatchToResult(const InputBundle &input, Expan
 
             _SetFilledPixel(targetMosaicRow,
                             targetMosaicColumn,
-                            input.Image.GetPixelValue<cv::Vec3b>(localRow, localColumn),
+                            input.SourceImage.GetPixelValue<cv::Vec3b>(localRow, localColumn),
                             input.GrayImage.at<unsigned char>(localRow, localColumn),
                             static_cast<int>(ownerInputIndex));
         }
@@ -662,8 +718,8 @@ bool AdaptiveStripMosaicBase::_BuildPatchPixels(const InputBundle &input, Expand
 
     const auto [normalRow, normalColumn] = _GetNormalOffset(direction);
     const auto [tangentRow, tangentColumn] = _GetTangentOffset(direction);
-    const int imageRows = input.Image.Height();
-    const int imageColumns = input.Image.Width();
+    const int imageRows = input.SourceImage.Height();
+    const int imageColumns = input.SourceImage.Width();
 
     int currentBoundaryRow = boundaryRow;
     int currentBoundaryColumn = boundaryColumn;
@@ -685,7 +741,7 @@ bool AdaptiveStripMosaicBase::_BuildPatchPixels(const InputBundle &input, Expand
             PatchPixel patchPixel = {};
             patchPixel.MosaicRow = targetMosaicRow;
             patchPixel.MosaicColumn = targetMosaicColumn;
-            patchPixel.Value = input.Image.GetPixelValue<cv::Vec3b>(localRow, localColumn);
+            patchPixel.Value = input.SourceImage.GetPixelValue<cv::Vec3b>(localRow, localColumn);
             patchPixel.GrayValue = input.GrayImage.at<unsigned char>(localRow, localColumn);
 
             if (boundaryMosaicRow < 0 || boundaryMosaicRow >= AlgorithmResult.Height() ||
@@ -713,23 +769,21 @@ bool AdaptiveStripMosaicBase::_ComputeBalancedValues(const std::vector<PatchPixe
     }
 
     try {
-        cv::Mat candidateStrip(1, static_cast<int>(patchPixels.size()), CV_8UC3);
+        _CandidateStripBuffer.create(1, static_cast<int>(patchPixels.size()), CV_8UC3);
         for (size_t index = 0; index < patchPixels.size(); ++index) {
-            candidateStrip.at<cv::Vec3b>(0, static_cast<int>(index)) = patchPixels[index].Value;
+            _CandidateStripBuffer.at<cv::Vec3b>(0, static_cast<int>(index)) = patchPixels[index].Value;
         }
 
-        cv::Mat targetMaskMat, targetGrayMat;
-        cv::cvtColor(candidateStrip, targetGrayMat, cv::COLOR_BGR2GRAY);
-        cv::inRange(targetGrayMat, 3, 210, targetMaskMat);
-        cv::Mat targetNoDataMask;
-        cv::inRange(candidateStrip, cv::Scalar::all(0), cv::Scalar::all(0), targetNoDataMask);
+        cv::cvtColor(_CandidateStripBuffer, _CandidateGrayBuffer, cv::COLOR_BGR2GRAY);
+        cv::inRange(_CandidateGrayBuffer, 3, 210, _CandidateMaskBuffer);
+        cv::inRange(_CandidateStripBuffer, cv::Scalar::all(0), cv::Scalar::all(0), _CandidateNoDataMaskBuffer);
 
-        std::vector<double> targetMeans(candidateStrip.channels(), 0.0);
-        std::vector<double> targetStdDevs(candidateStrip.channels(), 0.0);
-        cv::meanStdDev(candidateStrip, targetMeans, targetStdDevs, targetMaskMat);
+        std::vector<double> targetMeans(_CandidateStripBuffer.channels(), 0.0);
+        std::vector<double> targetStdDevs(_CandidateStripBuffer.channels(), 0.0);
+        cv::meanStdDev(_CandidateStripBuffer, targetMeans, targetStdDevs, _CandidateMaskBuffer);
 
         std::vector<cv::Mat> targetChannels = {};
-        cv::split(candidateStrip, targetChannels);
+        cv::split(_CandidateStripBuffer, targetChannels);
         for (size_t channelIndex = 0; channelIndex < targetChannels.size(); ++channelIndex) {
             auto &targetChannel = targetChannels[channelIndex];
             const auto alpha = (targetStdDevs[channelIndex] < 1e-6) ? 1.0 : (_GlobalValidStdDevs[channelIndex] / targetStdDevs[channelIndex]);
@@ -737,16 +791,15 @@ bool AdaptiveStripMosaicBase::_ComputeBalancedValues(const std::vector<PatchPixe
             targetChannel.convertTo(targetChannel, -1, alpha, beta);
         }
 
-        cv::Mat balancedStrip = {};
-        cv::merge(targetChannels, balancedStrip);
-        balancedStrip.setTo(0, targetNoDataMask);
-        if (balancedStrip.empty() || balancedStrip.cols != candidateStrip.cols) {
+        cv::merge(targetChannels, _BalancedStripBuffer);
+        _BalancedStripBuffer.setTo(0, _CandidateNoDataMaskBuffer);
+        if (_BalancedStripBuffer.empty() || _BalancedStripBuffer.cols != _CandidateStripBuffer.cols) {
             return false;
         }
 
         balancedValues.reserve(patchPixels.size());
-        for (int column = 0; column < balancedStrip.cols; ++column) {
-            balancedValues.emplace_back(balancedStrip.at<cv::Vec3b>(0, column));
+        for (int column = 0; column < _BalancedStripBuffer.cols; ++column) {
+            balancedValues.emplace_back(_BalancedStripBuffer.at<cv::Vec3b>(0, column));
         }
         return true;
     } catch (const cv::Exception &exception) {
@@ -806,21 +859,6 @@ std::pair<int, int> AdaptiveStripMosaicBase::_GetTangentOffset(ExpandDirection d
     }
 
     return {0, 0};
-}
-
-const char *AdaptiveStripMosaicBase::_GetDirectionName(ExpandDirection direction) const {
-    switch (direction) {
-    case ExpandDirection::Up:
-        return "Up";
-    case ExpandDirection::Right:
-        return "Right";
-    case ExpandDirection::Down:
-        return "Down";
-    case ExpandDirection::Left:
-        return "Left";
-    }
-
-    return "Unknown";
 }
 
 void AdaptiveStripMosaicBase::_SetFilledPixel(int mosaicRow, int mosaicColumn, const cv::Vec3b &pixelValue, unsigned char grayValue, int ownerInputIndex) {

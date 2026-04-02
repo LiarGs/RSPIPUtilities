@@ -1,44 +1,45 @@
-﻿#include "Algorithm/Mosaic/ShowOverLap.h"
+#include "Algorithm/Mosaic/ShowOverLap.h"
 #include "Util/Color.h"
 #include "Util/SuperDebug.hpp"
 #include <omp.h>
 
 namespace RSPIP::Algorithm::MosaicAlgorithm {
 
-ShowOverLap::ShowOverLap(const std::vector<GeoImage> &imageDatas) : MosaicAlgorithmBase(imageDatas) {}
+ShowOverLap::ShowOverLap(std::vector<Image> imageDatas) : MosaicAlgorithmBase(std::move(imageDatas)) {}
 
 void ShowOverLap::Execute() {
     SuperDebug::Info("Mosaic Image Size: {} x {}", AlgorithmResult.Height(), AlgorithmResult.Width());
 
-    for (const auto &imgData : _MosaicImages) {
-        _PasteImageToMosaicResult(imgData);
+    for (const auto &imageData : _MosaicImages) {
+        _PasteImageToMosaicResult(imageData);
     }
 
     SuperDebug::Info("Mosaic Completed.");
 }
 
-void ShowOverLap::_PasteImageToMosaicResult(const GeoImage &imageData) {
-    int columns = imageData.Width();
-    int rows = imageData.Height();
+void ShowOverLap::_PasteImageToMosaicResult(const Image &imageData) {
+    if (!imageData.GeoInfo.has_value() || !AlgorithmResult.GeoInfo.has_value()) {
+        return;
+    }
 
-    // Info("Pasting Image: {} Size: {} x {}", imageData.ImageName, rows, columns);
+    const int columns = imageData.Width();
+    const int rows = imageData.Height();
 
 #pragma omp parallel for
     for (int row = 0; row < rows; ++row) {
         for (int col = 0; col < columns; ++col) {
-
             const auto &pixelValue = imageData.GetPixelValue<cv::Vec3b>(row, col);
-            if (pixelValue == imageData.NonData) {
+            if (imageData.IsNoDataPixel(row, col)) {
                 continue;
             }
 
-            auto [latitude, longitude] = imageData.GetLatLon(row, col);
-            auto [mosaicRow, mosaicColumn] = AlgorithmResult.LatLonToRC(latitude, longitude);
-
+            const auto [latitude, longitude] = imageData.GeoInfo->GetLatLon(row, col);
+            const auto [mosaicRow, mosaicColumn] = AlgorithmResult.GeoInfo->LatLonToRC(latitude, longitude);
             if (mosaicRow == -1 || mosaicColumn == -1) {
                 continue;
             }
-            if (AlgorithmResult.GetPixelValue<cv::Vec3b>(mosaicRow, mosaicColumn) == AlgorithmResult.NonData) {
+
+            if (AlgorithmResult.IsNoDataPixel(mosaicRow, mosaicColumn)) {
                 AlgorithmResult.SetPixelValue(mosaicRow, mosaicColumn, pixelValue);
             } else {
                 AlgorithmResult.SetPixelValue(mosaicRow, mosaicColumn, Color::Red);

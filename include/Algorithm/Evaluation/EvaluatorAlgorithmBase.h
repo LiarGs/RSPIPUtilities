@@ -1,15 +1,13 @@
 ﻿#pragma once
+#include "Basic/Image.h"
 #include "Interface/IAlgorithm.h"
-
-namespace RSPIP {
-class Image;
-}
+#include <utility>
 
 namespace RSPIP::Algorithm {
 
 class EvaluatorAlgorithmBase : public IAlgorithm {
   public:
-    explicit EvaluatorAlgorithmBase(const Image &imageData) : _Image(imageData) {}
+    explicit EvaluatorAlgorithmBase(Image imageData) : _Image(std::move(imageData)) {}
     virtual ~EvaluatorAlgorithmBase() = default;
 
   protected:
@@ -18,7 +16,7 @@ class EvaluatorAlgorithmBase : public IAlgorithm {
     EvaluatorAlgorithmBase(EvaluatorAlgorithmBase &&) = default;
 
   protected:
-    const Image &_Image;
+    Image _Image;
 };
 
 } // namespace RSPIP::Algorithm

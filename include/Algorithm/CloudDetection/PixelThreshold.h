@@ -10,8 +10,7 @@ enum class PixelThresholdMode {
 
 class PixelThreshold : public CloudDetectionAlgorithmBase {
   public:
-    explicit PixelThreshold(const Image &imageData);
-    explicit PixelThreshold(const GeoImage &imageData);
+    explicit PixelThreshold(Image imageData);
 
     void Execute() override;
 

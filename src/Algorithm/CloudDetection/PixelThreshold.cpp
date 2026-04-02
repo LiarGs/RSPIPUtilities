@@ -1,14 +1,12 @@
 #include "Algorithm/CloudDetection/PixelThreshold.h"
+#include "Algorithm/Detail/AlgorithmValidation.h"
 #include "Util/SuperDebug.hpp"
 #include <opencv2/imgproc.hpp>
 
 namespace RSPIP::Algorithm::CloudDetectionAlgorithm {
 
-PixelThreshold::PixelThreshold(const Image &imageData)
-    : CloudDetectionAlgorithmBase(imageData) {}
-
-PixelThreshold::PixelThreshold(const GeoImage &imageData)
-    : CloudDetectionAlgorithmBase(imageData) {}
+PixelThreshold::PixelThreshold(Image imageData)
+    : CloudDetectionAlgorithmBase(std::move(imageData)) {}
 
 void PixelThreshold::SetThreshold(unsigned char threshold) {
     _Threshold = threshold;
@@ -21,6 +19,7 @@ void PixelThreshold::SetThresholdMode(PixelThresholdMode mode) {
 void PixelThreshold::Execute() {
     if (_Image.ImageData.empty()) {
         SuperDebug::Error("Input image is empty in PixelThreshold cloud detection.");
+        Detail::ResetImageResult(AlgorithmResult);
         return;
     }
 
@@ -36,18 +35,16 @@ void PixelThreshold::Execute() {
         }
     } else {
         SuperDebug::Error("Unsupported channel count: {}", _Image.ImageData.channels());
+        Detail::ResetImageResult(AlgorithmResult);
         return;
     }
 
     cv::Mat cloudMask;
     cv::threshold(thresholdSource, cloudMask, _Threshold, 255, cv::THRESH_BINARY);
 
-    AlgorithmResult = CloudMask(cloudMask);
-
-    // GeoImage 输入时，复制地理参考信息到输出云掩膜。
-    if (_GeoImage != nullptr) {
-        AlgorithmResult.SetSourceImage(*_GeoImage);
-    }
+    AlgorithmResult = Image(cloudMask, _Image.ImageName);
+    AlgorithmResult.NoDataValues = _Image.NoDataValues;
+    AlgorithmResult.GeoInfo = _Image.GeoInfo;
 }
 
 } // namespace RSPIP::Algorithm::CloudDetectionAlgorithm

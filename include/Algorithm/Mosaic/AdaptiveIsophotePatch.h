@@ -5,7 +5,7 @@ namespace RSPIP::Algorithm::MosaicAlgorithm {
 
 class AdaptiveIsophotePatch : public Detail::AdaptiveStripMosaicBase {
   public:
-    AdaptiveIsophotePatch(const std::vector<GeoImage> &imageDatas, const std::vector<CloudMask> &cloudMasks);
+    AdaptiveIsophotePatch(std::vector<Image> imageDatas, std::vector<Image> maskImages);
 
     using Detail::AdaptiveStripMosaicBase::SetStripWidth;
 
@@ -31,12 +31,11 @@ class AdaptiveIsophotePatch : public Detail::AdaptiveStripMosaicBase {
     bool _NeedsGlobalValidStatistics() const override {
         return true;
     }
-    void _OnInputBundlePrepared(InputBundle &input) override;
     PatchApplyResult _ApplyCandidatePatch(const CandidatePatch &candidate, ExpandDirection direction, int boundaryRow, int boundaryColumn) override;
 
   private:
     bool _ReconstructPatchLocally(const std::vector<PatchPixel> &patchPixels, size_t ownerInputIndex);
-    GeoImage _CreateLocalGeoImage(const cv::Rect &window) const;
+    Image _CreateLocalImage(const cv::Rect &window) const;
 
   private:
     int _MaxIterations = 10000;

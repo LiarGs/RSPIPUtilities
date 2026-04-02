@@ -11,9 +11,16 @@ namespace {
 
 constexpr unsigned char kFilledValue = 255;
 
-ImageGeoBounds _BuildImageBounds(const GeoImage &image) {
-    if (image.ImageData.empty() || image.GeoTransform.size() < 6) {
-        return image.ImageBounds;
+cv::Vec3b _ScalarToVec3b(const cv::Scalar &value) {
+    return cv::Vec3b(
+        cv::saturate_cast<unsigned char>(value[0]),
+        cv::saturate_cast<unsigned char>(value[1]),
+        cv::saturate_cast<unsigned char>(value[2]));
+}
+
+ImageGeoBounds _BuildImageBounds(const Image &image) {
+    if (image.ImageData.empty() || !image.GeoInfo.has_value() || image.GeoInfo->GeoTransform.size() < 6) {
+        return image.GeoInfo.has_value() ? image.GeoInfo->Bounds : ImageGeoBounds{};
     }
 
     ImageGeoBounds bounds = {
@@ -23,7 +30,7 @@ ImageGeoBounds _BuildImageBounds(const GeoImage &image) {
         std::numeric_limits<double>::lowest()};
 
     const auto updateBounds = [&](int row, int column) {
-        const auto [latitude, longitude] = image.GetLatLon(row, column);
+        const auto [latitude, longitude] = image.GeoInfo->GetLatLon(row, column);
         bounds.MinLongitude = std::min(bounds.MinLongitude, longitude);
         bounds.MaxLongitude = std::max(bounds.MaxLongitude, longitude);
         bounds.MinLatitude = std::min(bounds.MinLatitude, latitude);
@@ -41,15 +48,11 @@ ImageGeoBounds _BuildImageBounds(const GeoImage &image) {
 
 } // namespace
 
-AdaptiveIsophotePatch::AdaptiveIsophotePatch(const std::vector<GeoImage> &imageDatas, const std::vector<CloudMask> &cloudMasks)
-    : AdaptiveStripMosaicBase(imageDatas, cloudMasks) {}
+AdaptiveIsophotePatch::AdaptiveIsophotePatch(std::vector<Image> imageDatas, std::vector<Image> maskImages)
+    : AdaptiveStripMosaicBase(std::move(imageDatas), std::move(maskImages)) {}
 
 const char *AdaptiveIsophotePatch::_AlgorithmName() const {
     return "AdaptiveIsophotePatch";
-}
-
-void AdaptiveIsophotePatch::_OnInputBundlePrepared(InputBundle &input) {
-    input.Mask.SetSourceImage(input.Image);
 }
 
 AdaptiveIsophotePatch::PatchApplyResult AdaptiveIsophotePatch::_ApplyCandidatePatch(const CandidatePatch &candidate, ExpandDirection direction, int boundaryRow, int boundaryColumn) {
@@ -103,7 +106,7 @@ bool AdaptiveIsophotePatch::_ReconstructPatchLocally(const std::vector<PatchPixe
         return false;
     }
 
-    auto localReconstructImage = _CreateLocalGeoImage(window);
+    auto localReconstructImage = _CreateLocalImage(window);
     if (localReconstructImage.ImageData.empty()) {
         return false;
     }
@@ -119,12 +122,12 @@ bool AdaptiveIsophotePatch::_ReconstructPatchLocally(const std::vector<PatchPixe
         }
 
         localMaskData.at<unsigned char>(localRow, localColumn) = kFilledValue;
-        localReconstructImage.SetPixelValue(localRow, localColumn, localReconstructImage.NonData);
+        localReconstructImage.SetPixelValue(localRow, localColumn, _ScalarToVec3b(localReconstructImage.GetFillScalarForOpenCV()));
         localReferImage.SetPixelValue(localRow, localColumn, patchPixel.Value);
     }
 
-    CloudMask localMask(localMaskData, localReconstructImage);
-    localMask.SetSourceImage(localReconstructImage);
+    Image localMask(localMaskData, localReconstructImage.ImageName);
+    localMask.GeoInfo = localReconstructImage.GeoInfo;
 
     try {
         ReconstructAlgorithm::IsophoteConstrain reconstructAlgorithm(localReconstructImage, localReferImage, localMask);
@@ -153,16 +156,17 @@ bool AdaptiveIsophotePatch::_ReconstructPatchLocally(const std::vector<PatchPixe
     }
 }
 
-GeoImage AdaptiveIsophotePatch::_CreateLocalGeoImage(const cv::Rect &window) const {
-    GeoImage localImage = AlgorithmResult;
+Image AdaptiveIsophotePatch::_CreateLocalImage(const cv::Rect &window) const {
+    Image localImage = AlgorithmResult;
     localImage.ImageData = AlgorithmResult.ImageData(window).clone();
-    localImage.NonData = AlgorithmResult.NonData;
-    localImage.Projection = AlgorithmResult.Projection;
+    localImage.NoDataValues = AlgorithmResult.NoDataValues;
 
-    if (localImage.GeoTransform.size() >= 6) {
-        localImage.GeoTransform[0] = AlgorithmResult.GeoTransform[0] + window.x * AlgorithmResult.GeoTransform[1] + window.y * AlgorithmResult.GeoTransform[2];
-        localImage.GeoTransform[3] = AlgorithmResult.GeoTransform[3] + window.x * AlgorithmResult.GeoTransform[4] + window.y * AlgorithmResult.GeoTransform[5];
-        localImage.ImageBounds = _BuildImageBounds(localImage);
+    if (localImage.GeoInfo.has_value() && localImage.GeoInfo->GeoTransform.size() >= 6 && AlgorithmResult.GeoInfo.has_value()) {
+        localImage.GeoInfo->GeoTransform[0] = AlgorithmResult.GeoInfo->GeoTransform[0] + window.x * AlgorithmResult.GeoInfo->GeoTransform[1] +
+                                              window.y * AlgorithmResult.GeoInfo->GeoTransform[2];
+        localImage.GeoInfo->GeoTransform[3] = AlgorithmResult.GeoInfo->GeoTransform[3] + window.x * AlgorithmResult.GeoInfo->GeoTransform[4] +
+                                              window.y * AlgorithmResult.GeoInfo->GeoTransform[5];
+        localImage.GeoInfo->Bounds = _BuildImageBounds(localImage);
     }
 
     return localImage;

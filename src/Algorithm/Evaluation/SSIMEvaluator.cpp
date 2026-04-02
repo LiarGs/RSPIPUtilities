@@ -1,5 +1,7 @@
 #include "Algorithm/Evaluation/SSIMEvaluator.h"
+#include "Algorithm/Detail/AlgorithmValidation.h"
 #include "Basic/Image.h"
+#include "Basic/RegionExtraction.h"
 #include "Util/SuperDebug.hpp"
 #include <algorithm>
 #include <limits>
@@ -31,34 +33,6 @@ cv::Mat _PrepareGrayImage(const cv::Mat &src) {
     gray /= static_cast<double>(channels.size());
 
     return gray;
-}
-
-cv::Mat _PrepareBinaryMask(const cv::Mat &src) {
-    if (src.empty()) {
-        return {};
-    }
-
-    cv::Mat grayMask;
-    if (src.channels() == 1) {
-        src.convertTo(grayMask, CV_8U);
-    } else {
-        cv::Mat srcDouble;
-        src.convertTo(srcDouble, CV_64F);
-
-        std::vector<cv::Mat> channels;
-        cv::split(srcDouble, channels);
-
-        cv::Mat averagedMask = cv::Mat::zeros(src.rows, src.cols, CV_64F);
-        for (const auto &channel : channels) {
-            averagedMask += channel;
-        }
-        averagedMask /= static_cast<double>(channels.size());
-        averagedMask.convertTo(grayMask, CV_8U);
-    }
-
-    cv::Mat binaryMask;
-    cv::threshold(grayMask, binaryMask, 0, 255, cv::THRESH_BINARY);
-    return binaryMask;
 }
 
 cv::Mat _PrepareBoundaryMask(const cv::Mat &binaryMask) {
@@ -139,29 +113,22 @@ double _CalculateSSIM(const cv::Mat &image, const cv::Mat &referenceImage, const
 
 namespace RSPIP::Algorithm {
 
-SSIMEvaluator::SSIMEvaluator(const Image &imageData, const Image &referenceImage)
-    : EvaluatorAlgorithmBase(imageData),
-      EvaluateResult(0.0),
-      _ReferenceImage(referenceImage) {}
+SSIMEvaluator::SSIMEvaluator(Image imageData, Image referenceImage)
+    : EvaluatorAlgorithmBase(std::move(imageData)),
+      EvaluateResult(std::numeric_limits<double>::quiet_NaN()),
+      _ReferenceImage(std::move(referenceImage)) {}
 
-SSIMEvaluator::SSIMEvaluator(const Image &imageData, const Image &referenceImage, const Image &maskImage)
-    : EvaluatorAlgorithmBase(imageData),
-      EvaluateResult(0.0),
-      _ReferenceImage(referenceImage),
-      _Mask(&maskImage) {}
+SSIMEvaluator::SSIMEvaluator(Image imageData, Image referenceImage, Image maskImage)
+    : EvaluatorAlgorithmBase(std::move(imageData)),
+      EvaluateResult(std::numeric_limits<double>::quiet_NaN()),
+      _ReferenceImage(std::move(referenceImage)),
+      _Mask(std::move(maskImage)) {}
 
 void SSIMEvaluator::Execute() {
-    if (_Image.ImageData.empty() || _ReferenceImage.ImageData.empty()) {
-        SuperDebug::Error("SSIMEvaluator requires two non-empty input images.");
-        return;
-    }
-
-    if (_Image.Height() != _ReferenceImage.Height() || _Image.Width() != _ReferenceImage.Width()) {
-        SuperDebug::Error("SSIMEvaluator requires images with the same size. Input: {}x{}, Reference: {}x{}",
-                          _Image.Width(),
-                          _Image.Height(),
-                          _ReferenceImage.Width(),
-                          _ReferenceImage.Height());
+    Detail::ResetEvaluationResult(EvaluateResult);
+    if (!Detail::ValidateNonEmpty(_Image, "SSIMEvaluator", "input image") ||
+        !Detail::ValidateNonEmpty(_ReferenceImage, "SSIMEvaluator", "reference image") ||
+        !Detail::ValidateSameSize(_Image, _ReferenceImage, "SSIMEvaluator", "input image", "reference image")) {
         return;
     }
 
@@ -175,28 +142,23 @@ void SSIMEvaluator::Execute() {
     cv::Mat imageGray = _PrepareGrayImage(_Image.ImageData);
     cv::Mat referenceGray = _PrepareGrayImage(_ReferenceImage.ImageData);
     cv::Mat evaluationMask;
-    if (_Mask != nullptr) {
+    if (_Mask.has_value()) {
         if (_Mask->ImageData.empty()) {
             SuperDebug::Error("SSIMEvaluator received an empty mask image.");
             return;
         }
 
-        if (_Mask->Height() != _Image.Height() || _Mask->Width() != _Image.Width()) {
-            SuperDebug::Error("SSIMEvaluator requires mask and image sizes to match. Image: {}x{}, Mask: {}x{}",
-                              _Image.Width(),
-                              _Image.Height(),
-                              _Mask->Width(),
-                              _Mask->Height());
+        if (!Detail::ValidateSameSize(_Image, *_Mask, "SSIMEvaluator", "input image", "mask image")) {
             return;
         }
 
-        evaluationMask = _PrepareBinaryMask(_Mask->ImageData);
+        evaluationMask = BuildSelectionMask(*_Mask, _MaskSelectionPolicy);
         if (_BoundaryOnly) {
             evaluationMask = _PrepareBoundaryMask(evaluationMask);
         }
     }
 
-    if (imageGray.empty() || referenceGray.empty() || (_Mask != nullptr && evaluationMask.empty())) {
+    if (imageGray.empty() || referenceGray.empty() || (_Mask.has_value() && evaluationMask.empty())) {
         SuperDebug::Error("SSIMEvaluator failed to prepare grayscale images or mask.");
         return;
     }

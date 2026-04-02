@@ -2,8 +2,8 @@
 
 namespace RSPIP::Algorithm::MosaicAlgorithm {
 
-AdaptivePatch::AdaptivePatch(const std::vector<GeoImage> &imageDatas, const std::vector<CloudMask> &cloudMasks)
-    : AdaptiveStripMosaicBase(imageDatas, cloudMasks) {}
+AdaptivePatch::AdaptivePatch(std::vector<Image> imageDatas, std::vector<Image> maskImages)
+    : AdaptiveStripMosaicBase(std::move(imageDatas), std::move(maskImages)) {}
 
 const char *AdaptivePatch::_AlgorithmName() const {
     return "AdaptivePatch";

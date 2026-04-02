@@ -1,15 +1,13 @@
 #pragma once
-#include "Basic/CloudMask.h"
-#include "Basic/GeoImage.h"
 #include "Basic/Image.h"
 #include "Interface/IAlgorithm.h"
+#include <utility>
 
 namespace RSPIP::Algorithm::CloudDetectionAlgorithm {
 
 class CloudDetectionAlgorithmBase : public IAlgorithm {
   public:
-    explicit CloudDetectionAlgorithmBase(const Image &imageData) : _Image(imageData), _GeoImage(nullptr) {}
-    explicit CloudDetectionAlgorithmBase(const GeoImage &imageData) : _Image(imageData), _GeoImage(&imageData) {}
+    explicit CloudDetectionAlgorithmBase(Image imageData) : _Image(std::move(imageData)) {}
     virtual ~CloudDetectionAlgorithmBase() = default;
 
   protected:
@@ -18,11 +16,10 @@ class CloudDetectionAlgorithmBase : public IAlgorithm {
     CloudDetectionAlgorithmBase(CloudDetectionAlgorithmBase &&) = default;
 
   public:
-    CloudMask AlgorithmResult;
+    Image AlgorithmResult;
 
   protected:
-    const Image &_Image;
-    const GeoImage *_GeoImage;
+    Image _Image;
 };
 
 } // namespace RSPIP::Algorithm::CloudDetectionAlgorithm

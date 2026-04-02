@@ -1,4 +1,5 @@
-﻿#include "Algorithm/Mosaic/MosaicAlgorithmBase.h"
+#include "Algorithm/Mosaic/MosaicAlgorithmBase.h"
+#include "Algorithm/Detail/AlgorithmValidation.h"
 #include "Util/SuperDebug.hpp"
 #include <cmath>
 #include <limits>
@@ -6,69 +7,96 @@
 
 namespace RSPIP::Algorithm::MosaicAlgorithm {
 
-MosaicAlgorithmBase::MosaicAlgorithmBase(const std::vector<GeoImage> &imageDatas)
-    : AlgorithmResult(), _MosaicImages(imageDatas) {
+MosaicAlgorithmBase::MosaicAlgorithmBase(std::vector<Image> imageDatas)
+    : AlgorithmResult(), _MosaicImages(std::move(imageDatas)) {
     _InitMosaicParameters();
 }
 
 void MosaicAlgorithmBase::_InitMosaicParameters() {
-    _GetGeoInfo();
+    if (!_GetGeoInfo()) {
+        Detail::ResetImageResult(AlgorithmResult);
+        return;
+    }
     _GetDimensions();
 }
 
-void MosaicAlgorithmBase::_GetGeoInfo() {
-    AlgorithmResult.ImageBounds.MinLongitude = std::numeric_limits<double>::max();
-    AlgorithmResult.ImageBounds.MinLatitude = std::numeric_limits<double>::max();
-    AlgorithmResult.ImageBounds.MaxLongitude = std::numeric_limits<double>::lowest();
-    AlgorithmResult.ImageBounds.MaxLatitude = std::numeric_limits<double>::lowest();
-
-    for (const auto &img : _MosaicImages) {
-        AlgorithmResult.ImageBounds.MinLongitude = std::min(AlgorithmResult.ImageBounds.MinLongitude, img.ImageBounds.MinLongitude);
-        AlgorithmResult.ImageBounds.MaxLongitude = std::max(AlgorithmResult.ImageBounds.MaxLongitude, img.ImageBounds.MaxLongitude);
-        AlgorithmResult.ImageBounds.MinLatitude = std::min(AlgorithmResult.ImageBounds.MinLatitude, img.ImageBounds.MinLatitude);
-        AlgorithmResult.ImageBounds.MaxLatitude = std::max(AlgorithmResult.ImageBounds.MaxLatitude, img.ImageBounds.MaxLatitude);
+bool MosaicAlgorithmBase::_GetGeoInfo() {
+    if (_MosaicImages.empty()) {
+        SuperDebug::Warn("No mosaic images were provided.");
+        return false;
     }
 
-    // 镶嵌结果继承第一张图的分辨率和旋转参数
-    AlgorithmResult.GeoTransform = {AlgorithmResult.ImageBounds.MinLongitude, _MosaicImages[0].GeoTransform[1], 0,
-                                    AlgorithmResult.ImageBounds.MaxLatitude, 0, _MosaicImages[0].GeoTransform[5]};
+    for (const auto &imageData : _MosaicImages) {
+        if (!Detail::ValidateGeoImage(imageData, "MosaicAlgorithmBase", "input image") ||
+            !Detail::ValidateBgrImage(imageData, "MosaicAlgorithmBase", "input image")) {
+            return false;
+        }
+    }
 
-    AlgorithmResult.Projection = _MosaicImages[0].Projection;
+    GeoInfo geoInfo = {};
+    geoInfo.Bounds.MinLongitude = std::numeric_limits<double>::max();
+    geoInfo.Bounds.MinLatitude = std::numeric_limits<double>::max();
+    geoInfo.Bounds.MaxLongitude = std::numeric_limits<double>::lowest();
+    geoInfo.Bounds.MaxLatitude = std::numeric_limits<double>::lowest();
+
+    for (const auto &imageData : _MosaicImages) {
+        geoInfo.Bounds.MinLongitude = std::min(geoInfo.Bounds.MinLongitude, imageData.GeoInfo->Bounds.MinLongitude);
+        geoInfo.Bounds.MaxLongitude = std::max(geoInfo.Bounds.MaxLongitude, imageData.GeoInfo->Bounds.MaxLongitude);
+        geoInfo.Bounds.MinLatitude = std::min(geoInfo.Bounds.MinLatitude, imageData.GeoInfo->Bounds.MinLatitude);
+        geoInfo.Bounds.MaxLatitude = std::max(geoInfo.Bounds.MaxLatitude, imageData.GeoInfo->Bounds.MaxLatitude);
+    }
+
+    geoInfo.GeoTransform = {
+        geoInfo.Bounds.MinLongitude,
+        _MosaicImages.front().GeoInfo->GeoTransform[1],
+        0.0,
+        geoInfo.Bounds.MaxLatitude,
+        0.0,
+        _MosaicImages.front().GeoInfo->GeoTransform[5]};
+    geoInfo.Projection = _MosaicImages.front().GeoInfo->Projection;
+
+    AlgorithmResult.GeoInfo = std::move(geoInfo);
+    return true;
 }
 
 void MosaicAlgorithmBase::_GetDimensions() {
-    const auto &gt = AlgorithmResult.GeoTransform;
-    // 防止除以0
-    if (std::abs(gt[1]) < 1e-9 || std::abs(gt[5]) < 1e-9) {
-        SuperDebug::Error("Invalid GeoTransform resolution");
+    if (!AlgorithmResult.GeoInfo.has_value()) {
         return;
     }
 
-    const auto mosaicCols = static_cast<int>((AlgorithmResult.ImageBounds.MaxLongitude - AlgorithmResult.ImageBounds.MinLongitude) / gt[1]);
-    const auto mosaicRows = static_cast<int>((AlgorithmResult.ImageBounds.MaxLatitude - AlgorithmResult.ImageBounds.MinLatitude) / std::abs(gt[5]));
+    const auto &geoInfo = *AlgorithmResult.GeoInfo;
+    if (std::abs(geoInfo.GeoTransform[1]) < 1e-9 || std::abs(geoInfo.GeoTransform[5]) < 1e-9) {
+        SuperDebug::Error("Invalid GeoTransform resolution");
+        Detail::ResetImageResult(AlgorithmResult);
+        return;
+    }
 
-    AlgorithmResult.NonData = Color::Black;
-    AlgorithmResult.ImageData = cv::Mat(mosaicRows + 1, mosaicCols + 1, CV_8UC3, AlgorithmResult.NonData);
+    const auto mosaicCols = std::max(1, static_cast<int>(std::ceil((geoInfo.Bounds.MaxLongitude - geoInfo.Bounds.MinLongitude) / std::abs(geoInfo.GeoTransform[1]))) + 1);
+    const auto mosaicRows = std::max(1, static_cast<int>(std::ceil((geoInfo.Bounds.MaxLatitude - geoInfo.Bounds.MinLatitude) / std::abs(geoInfo.GeoTransform[5]))) + 1);
+
+    AlgorithmResult.NoDataValues = {0.0, 0.0, 0.0};
+    AlgorithmResult.ImageData = cv::Mat(mosaicRows, mosaicCols, CV_8UC3, AlgorithmResult.GetFillScalarForOpenCV());
+    AlgorithmResult.GeoInfo->RebuildBounds(AlgorithmResult.Height(), AlgorithmResult.Width());
 }
 
-void MosaicAlgorithmBase::_PasteImageToMosaicResult(const GeoImage &imageData) {
-    int columns = imageData.Width();
-    int rows = imageData.Height();
+void MosaicAlgorithmBase::_PasteImageToMosaicResult(const Image &imageData) {
+    if (!imageData.GeoInfo.has_value() || !AlgorithmResult.GeoInfo.has_value()) {
+        return;
+    }
 
-    // Info("Pasting Image: {} Size: {} x {}", imageData.ImageName, rows, columns);
+    const int columns = imageData.Width();
+    const int rows = imageData.Height();
 
 #pragma omp parallel for
     for (int row = 0; row < rows; ++row) {
         for (int col = 0; col < columns; ++col) {
-
             const auto &pixelValue = imageData.GetPixelValue<cv::Vec3b>(row, col);
-            if (pixelValue == imageData.NonData) {
+            if (imageData.IsNoDataPixel(row, col)) {
                 continue;
             }
 
-            auto [latitude, longitude] = imageData.GetLatLon(row, col);
-            auto [mosaicRow, mosaicColumn] = AlgorithmResult.LatLonToRC(latitude, longitude);
-
+            const auto [latitude, longitude] = imageData.GeoInfo->GetLatLon(row, col);
+            const auto [mosaicRow, mosaicColumn] = AlgorithmResult.GeoInfo->LatLonToRC(latitude, longitude);
             if (mosaicRow == -1 || mosaicColumn == -1) {
                 continue;
             }

@@ -1,5 +1,5 @@
-﻿#pragma once
-#include "Basic/GeoImage.h"
+#pragma once
+#include "Basic/Image.h"
 #include "Interface/IAlgorithm.h"
 #include <vector>
 
@@ -11,22 +11,22 @@ class MosaicAlgorithmBase : public IAlgorithm {
 
   protected:
     MosaicAlgorithmBase() = default;
-    explicit MosaicAlgorithmBase(const std::vector<GeoImage> &imageDatas);
+    explicit MosaicAlgorithmBase(std::vector<Image> imageDatas);
     MosaicAlgorithmBase(const MosaicAlgorithmBase &) = default;
     MosaicAlgorithmBase(MosaicAlgorithmBase &&) = default;
 
-    virtual void _PasteImageToMosaicResult(const GeoImage &imageData);
+    virtual void _PasteImageToMosaicResult(const Image &imageData);
 
   private:
-    virtual void _InitMosaicParameters();
-    void _GetGeoInfo();
+    void _InitMosaicParameters();
+    bool _GetGeoInfo();
     void _GetDimensions();
 
   public:
-    GeoImage AlgorithmResult;
+    Image AlgorithmResult;
 
   protected:
-    const std::vector<GeoImage> &_MosaicImages;
+    std::vector<Image> _MosaicImages;
 };
 
 } // namespace RSPIP::Algorithm::MosaicAlgorithm

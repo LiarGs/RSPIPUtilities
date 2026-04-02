@@ -1,41 +1,49 @@
-﻿#include "Algorithm/ColorBalance/MatchStatistic.h"
-#include "Basic/GeoImage.h"
-#include "Basic/Image.h"
+#include "Algorithm/ColorBalance/MatchStatistic.h"
+#include "Algorithm/Detail/AlgorithmValidation.h"
+#include "Algorithm/Detail/MaskPolicies.h"
+#include "Basic/RegionExtraction.h"
 #include "Util/SuperDebug.hpp"
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
 
 namespace RSPIP::Algorithm::ColorBalanceAlgorithm {
 
-MatchStatistics::MatchStatistics(const Image &targetImage, const Image &referenceImage, const Image &mask)
-    : ColorBalanceAlgorithmBase(targetImage, referenceImage), _Mask(mask) {}
+MatchStatistics::MatchStatistics(Image targetImage, Image referenceImage, Image mask)
+    : ColorBalanceAlgorithmBase(std::move(targetImage), std::move(referenceImage)), _Mask(std::move(mask)) {}
 
 void MatchStatistics::Execute() {
-    // Info("Executing MatchStatistics ColorBalance...");
-
-    if (_TargetImage.ImageData.empty()) {
-        Error("Target Image is Empty!");
-        return;
-    }
-    if (_ReferenceImage.ImageData.empty()) {
-        Error("Reference Image is Empty!");
+    if (!Detail::ValidateNonEmpty(_TargetImage, "MatchStatistics", "target image") ||
+        !Detail::ValidateNonEmpty(_ReferenceImage, "MatchStatistics", "reference image") ||
+        !Detail::ValidateBgrImage(_TargetImage, "MatchStatistics", "target image") ||
+        !Detail::ValidateBgrImage(_ReferenceImage, "MatchStatistics", "reference image")) {
+        Detail::ResetImageResult(AlgorithmResult);
         return;
     }
 
-    // Exclude extreme pixels (too dark or too bright) from statistics
-    // Mask out pixels with pixel < 3 (black) or > 210 (bright)
-    cv::Mat targetMaskMat, targetGreyMat;
+    cv::Mat targetMaskMat;
+    cv::Mat targetGreyMat;
     cv::cvtColor(_TargetImage.ImageData, targetGreyMat, cv::COLOR_BGR2GRAY);
     cv::inRange(targetGreyMat, 3, 210, targetMaskMat);
-    cv::Mat targetNoDataMask;
-    cv::inRange(_TargetImage.ImageData, cv::Scalar::all(0), cv::Scalar::all(0), targetNoDataMask);
+    cv::Mat targetNoDataMask = cv::Mat::zeros(_TargetImage.Height(), _TargetImage.Width(), CV_8UC1);
+    if (_TargetImage.HasNoData()) {
+        for (int row = 0; row < _TargetImage.Height(); ++row) {
+            auto *maskPtr = targetNoDataMask.ptr<unsigned char>(row);
+            for (int column = 0; column < _TargetImage.Width(); ++column) {
+                maskPtr[column] = _TargetImage.IsNoDataPixel(row, column) ? 255 : 0;
+            }
+        }
+    }
 
-    cv::Mat referenceMaskMat, referenceGreyMat;
+    cv::Mat referenceMaskMat;
+    cv::Mat referenceGreyMat;
     cv::cvtColor(_ReferenceImage.ImageData, referenceGreyMat, cv::COLOR_BGR2GRAY);
     cv::inRange(referenceGreyMat, 3, 210, referenceMaskMat);
 
     if (!_Mask.ImageData.empty()) {
-        targetMaskMat.setTo(0, _Mask.ImageData);
+        const auto selectionMask = BuildSelectionMask(_Mask, Detail::DefaultBinaryMaskPolicy());
+        if (!selectionMask.empty()) {
+            targetMaskMat.setTo(0, selectionMask);
+        }
     } else {
         Info("the Mask is Empty!");
     }
@@ -57,23 +65,16 @@ void MatchStatistics::Execute() {
         const auto &referenceMean = referenceMeans[channelNum];
         const auto &targetMean = targetMeans[channelNum];
 
-        auto alpha = (targetStdDev < 1e-6) ? 1.0 : (referenceStdDev / targetStdDev);
-        auto beta = referenceMean - alpha * targetMean;
+        const auto alpha = (targetStdDev < 1e-6) ? 1.0 : (referenceStdDev / targetStdDev);
+        const auto beta = referenceMean - alpha * targetMean;
         targetChannel.convertTo(targetChannel, -1, alpha, beta);
     }
 
     cv::merge(targetChannels, AlgorithmResult.ImageData);
     AlgorithmResult.ImageData.setTo(0, targetNoDataMask);
     AlgorithmResult.ImageName = _TargetImage.ImageName;
-
-    if (const auto *targetGeoImage = dynamic_cast<const GeoImage *>(&_TargetImage)) {
-        AlgorithmResult.GeoTransform = targetGeoImage->GeoTransform;
-        AlgorithmResult.Projection = targetGeoImage->Projection;
-        AlgorithmResult.ImageBounds = targetGeoImage->ImageBounds;
-        AlgorithmResult.NonData = targetGeoImage->NonData;
-    }
-
-    // Info("ColorBalance Completed.");
+    AlgorithmResult.NoDataValues = _TargetImage.NoDataValues;
+    AlgorithmResult.GeoInfo = _TargetImage.GeoInfo;
 }
 
 } // namespace RSPIP::Algorithm::ColorBalanceAlgorithm

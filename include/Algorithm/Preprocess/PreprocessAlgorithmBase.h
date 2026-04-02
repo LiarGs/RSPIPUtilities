@@ -1,8 +1,8 @@
 #pragma once
-#include "Basic/CloudMask.h"
-#include "Basic/GeoImage.h"
+#include "Basic/Image.h"
 #include "Interface/IAlgorithm.h"
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace RSPIP::Algorithm::PreprocessAlgorithm {
@@ -16,10 +16,10 @@ struct UnifiedGridInfo {
 
 class PreprocessAlgorithmBase : public IAlgorithm {
   public:
-    explicit PreprocessAlgorithmBase(const std::vector<GeoImage> &imageDatas)
-        : _ImageDatas(imageDatas), _OwnedCloudMasks(), _CloudMasks(_OwnedCloudMasks) {}
-    PreprocessAlgorithmBase(const std::vector<GeoImage> &imageDatas, const std::vector<CloudMask> &cloudMasks)
-        : _ImageDatas(imageDatas), _OwnedCloudMasks(), _CloudMasks(cloudMasks) {}
+    explicit PreprocessAlgorithmBase(std::vector<Image> imageDatas)
+        : _ImageDatas(std::move(imageDatas)), _MaskImages() {}
+    PreprocessAlgorithmBase(std::vector<Image> imageDatas, std::vector<Image> maskImages)
+        : _ImageDatas(std::move(imageDatas)), _MaskImages(std::move(maskImages)) {}
     virtual ~PreprocessAlgorithmBase() = default;
 
   protected:
@@ -29,13 +29,12 @@ class PreprocessAlgorithmBase : public IAlgorithm {
 
   public:
     UnifiedGridInfo UnifiedGrid;
-    std::vector<GeoImage> AlignedImages;
-    std::vector<CloudMask> AlignedCloudMasks;
+    std::vector<Image> AlignedImages;
+    std::vector<Image> AlignedMaskImages;
 
   protected:
-    const std::vector<GeoImage> &_ImageDatas;
-    std::vector<CloudMask> _OwnedCloudMasks;
-    const std::vector<CloudMask> &_CloudMasks;
+    std::vector<Image> _ImageDatas;
+    std::vector<Image> _MaskImages;
 };
 
 } // namespace RSPIP::Algorithm::PreprocessAlgorithm

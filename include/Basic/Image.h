@@ -1,25 +1,26 @@
-﻿#pragma once
+#pragma once
+#include "Basic/GeoInfo.h"
+#include <opencv2/core.hpp>
 #include <opencv2/core/mat.hpp>
+#include <opencv2/core/types.hpp>
+#include <optional>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace RSPIP {
-
-class IImageVisitor;
 
 class Image {
   public:
     Image();
     Image(const cv::Mat &imageData);
     Image(const cv::Mat &imageData, const std::string &imageName);
-    virtual ~Image() = default;
-
-    virtual void Accept(IImageVisitor &visitor) const;
+    ~Image() = default;
 
     int Height() const;
     int Width() const;
 
-    virtual int GetBandCounts() const;
+    int GetBandCounts() const;
 
     template <typename T>
     T GetPixelValue(int row, int col) const {
@@ -57,9 +58,16 @@ class Image {
 
     bool IsOutOfBounds(int row, int col) const;
     bool IsOutOfBounds(int row, int col, int band) const;
+    bool HasNoData() const;
+    bool IsNoDataPixel(int row, int col) const;
+    cv::Scalar GetFillScalarForOpenCV() const;
+    bool IsBgrColorImage() const;
 
   public:
     cv::Mat ImageData;
     std::string ImageName;
+    std::vector<double> NoDataValues;
+    std::optional<GeoInfo> GeoInfo;
 };
+
 } // namespace RSPIP
