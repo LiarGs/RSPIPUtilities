@@ -1,5 +1,5 @@
 #include "Algorithm/Mosaic/AdaptiveColorBalancePatch.h"
 #include "Algorithm/Mosaic/AdaptivePatch.h"
 #include "Algorithm/Mosaic/AdaptiveIsophotePatch.h"
-#include "Algorithm/Mosaic/ShowOverLap.h"
-#include "Algorithm/Mosaic/Simple.h"
+#include "Algorithm/Mosaic/PixelWiseStrategyMosaic.h"
+#include "Algorithm/Mosaic/VoronoiPartitionMosaic.h"

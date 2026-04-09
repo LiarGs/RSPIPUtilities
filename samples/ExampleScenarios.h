@@ -4,6 +4,8 @@ namespace RSPIP::Samples {
 
 void RunNormalImageSample();
 void RunGeoRasterMosaicSample();
+void RunPixelWiseStrategyMosaicSample();
+void RunVoronoiPartitionMosaicSample();
 void RunColorBalanceSample();
 void RunEvaluationSample();
 void RunReconstructSample();

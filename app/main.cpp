@@ -11,6 +11,8 @@ int main(int argc, char *argv[]) {
 
     // RSPIP::Samples::RunNormalImageSample();
     // RSPIP::Samples::RunGeoRasterMosaicSample();
+    // RSPIP::Samples::RunPixelWiseStrategyMosaicSample();
+    // RSPIP::Samples::RunVoronoiPartitionMosaicSample();
     // RSPIP::Samples::RunColorBalanceSample();
     // RSPIP::Samples::RunEvaluationSample();
     // RSPIP::Samples::RunReconstructSample();

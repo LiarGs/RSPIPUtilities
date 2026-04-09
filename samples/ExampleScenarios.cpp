@@ -11,6 +11,12 @@ namespace {
 
 constexpr auto kGeoSaveImagePath = "E:/RSPIP/Resource/Temp/";
 constexpr auto kGeoSaveImageName = "OutputImage.tif";
+constexpr auto kPixelWiseLastWriteSaveImageName = "PixelWiseLastWriteWins.tif";
+constexpr auto kPixelWiseOverlapHighlightSaveImageName = "PixelWiseHighlightOverlapRed.tif";
+constexpr auto kPixelWiseNoMaskSaveImageName = "PixelWiseMeanNoMask.tif";
+constexpr auto kPixelWiseMaskSaveImageName = "PixelWiseMeanWithMask.tif";
+constexpr auto kPixelWiseMedianNoMaskSaveImageName = "PixelWiseMedianNoMask.tif";
+constexpr auto kVoronoiPartitionSaveImageName = "VoronoiPartitionMosaic.tif";
 
 } // namespace
 
@@ -57,6 +63,109 @@ void RunGeoRasterMosaicSample() {
     SuperDebug::ScopeTimer algorithmTimer("Algorithm Execution");
     mosaicAlgorithm->Execute();
     IO::SaveImage(mosaicAlgorithm->AlgorithmResult, kGeoSaveImagePath, kGeoSaveImageName);
+}
+
+void RunPixelWiseStrategyMosaicSample() {
+    const auto testImagePath = "E:/RSPIP/Resource/DataWithSimuClouds/TifData/";
+    const auto testMaskImagePath = "E:/RSPIP/Resource/DataWithSimuClouds/MaskDatas/";
+    const auto imageNames = Util::GetTifImagePathFromPath(testImagePath);
+    const auto cloudMaskNames = Util::GetTifImagePathFromPath(testMaskImagePath);
+
+    std::vector<Image> imageDatas(imageNames.size());
+    std::vector<Image> cloudMasks(cloudMaskNames.size());
+
+    SuperDebug::ScopeTimer loadingTimer("PixelWiseStrategyMosaic Data Loading");
+#pragma omp parallel for
+    for (int i = 0; i < static_cast<int>(imageNames.size()); ++i) {
+        imageDatas[static_cast<size_t>(i)] = IO::ReadImage(imageNames[static_cast<size_t>(i)]);
+    }
+
+#pragma omp parallel for
+    for (int i = 0; i < static_cast<int>(cloudMaskNames.size()); ++i) {
+        cloudMasks[static_cast<size_t>(i)] = IO::ReadImage(cloudMaskNames[static_cast<size_t>(i)]);
+    }
+    loadingTimer.Stop();
+
+    auto preprocessAlgorithm = std::make_unique<Algorithm::PreprocessAlgorithm::GeoCoordinateAlign>(imageDatas, cloudMasks);
+    SuperDebug::ScopeTimer preprocessTimer("PixelWiseStrategyMosaic Preprocess");
+    preprocessAlgorithm->Execute();
+    preprocessTimer.Stop();
+
+    auto lastWriteMosaic = std::make_unique<Algorithm::MosaicAlgorithm::PixelWiseStrategyMosaic>(
+        preprocessAlgorithm->AlignedImages);
+    lastWriteMosaic->SetOverlapStrategy(Algorithm::MosaicAlgorithm::PixelWiseOverlapStrategy::LastWriteWins);
+    SuperDebug::ScopeTimer lastWriteTimer("PixelWiseStrategyMosaic LastWriteWins");
+    lastWriteMosaic->Execute();
+    IO::SaveImage(lastWriteMosaic->AlgorithmResult, kGeoSaveImagePath, kPixelWiseLastWriteSaveImageName);
+    lastWriteTimer.Stop();
+
+    auto highlightOverlapMosaic = std::make_unique<Algorithm::MosaicAlgorithm::PixelWiseStrategyMosaic>(
+        preprocessAlgorithm->AlignedImages);
+    highlightOverlapMosaic->SetOverlapStrategy(Algorithm::MosaicAlgorithm::PixelWiseOverlapStrategy::HighlightOverlapRed);
+    SuperDebug::ScopeTimer highlightOverlapTimer("PixelWiseStrategyMosaic HighlightOverlapRed");
+    highlightOverlapMosaic->Execute();
+    IO::SaveImage(highlightOverlapMosaic->AlgorithmResult, kGeoSaveImagePath, kPixelWiseOverlapHighlightSaveImageName);
+    highlightOverlapTimer.Stop();
+
+    auto noMaskMosaic = std::make_unique<Algorithm::MosaicAlgorithm::PixelWiseStrategyMosaic>(
+        preprocessAlgorithm->AlignedImages);
+    noMaskMosaic->SetOverlapStrategy(Algorithm::MosaicAlgorithm::PixelWiseOverlapStrategy::MeanOfValidPixels);
+    SuperDebug::ScopeTimer noMaskTimer("PixelWiseStrategyMosaic MeanOfValidPixels Without Mask");
+    noMaskMosaic->Execute();
+    IO::SaveImage(noMaskMosaic->AlgorithmResult, kGeoSaveImagePath, kPixelWiseNoMaskSaveImageName);
+    noMaskTimer.Stop();
+
+    auto maskMosaic = std::make_unique<Algorithm::MosaicAlgorithm::PixelWiseStrategyMosaic>(
+        preprocessAlgorithm->AlignedImages,
+        preprocessAlgorithm->AlignedMaskImages);
+    maskMosaic->SetOverlapStrategy(Algorithm::MosaicAlgorithm::PixelWiseOverlapStrategy::MeanOfValidPixels);
+    SuperDebug::ScopeTimer maskTimer("PixelWiseStrategyMosaic MeanOfValidPixels With Mask");
+    maskMosaic->Execute();
+    IO::SaveImage(maskMosaic->AlgorithmResult, kGeoSaveImagePath, kPixelWiseMaskSaveImageName);
+    maskTimer.Stop();
+
+    auto medianNoMaskMosaic = std::make_unique<Algorithm::MosaicAlgorithm::PixelWiseStrategyMosaic>(
+        preprocessAlgorithm->AlignedImages);
+    medianNoMaskMosaic->SetOverlapStrategy(Algorithm::MosaicAlgorithm::PixelWiseOverlapStrategy::MedianOfValidPixels);
+    SuperDebug::ScopeTimer medianNoMaskTimer("PixelWiseStrategyMosaic MedianOfValidPixels Without Mask");
+    medianNoMaskMosaic->Execute();
+    IO::SaveImage(medianNoMaskMosaic->AlgorithmResult, kGeoSaveImagePath, kPixelWiseMedianNoMaskSaveImageName);
+    medianNoMaskTimer.Stop();
+}
+
+void RunVoronoiPartitionMosaicSample() {
+    const auto testImagePath = "E:/RSPIP/Resource/DataWithSimuClouds/TifData/";
+    const auto testMaskImagePath = "E:/RSPIP/Resource/DataWithSimuClouds/MaskDatas/";
+    const auto imageNames = Util::GetTifImagePathFromPath(testImagePath);
+    const auto cloudMaskNames = Util::GetTifImagePathFromPath(testMaskImagePath);
+
+    std::vector<Image> imageDatas(imageNames.size());
+    std::vector<Image> cloudMasks(cloudMaskNames.size());
+
+    SuperDebug::ScopeTimer loadingTimer("VoronoiPartitionMosaic Data Loading");
+#pragma omp parallel for
+    for (int i = 0; i < static_cast<int>(imageNames.size()); ++i) {
+        imageDatas[static_cast<size_t>(i)] = IO::ReadImage(imageNames[static_cast<size_t>(i)]);
+    }
+
+#pragma omp parallel for
+    for (int i = 0; i < static_cast<int>(cloudMaskNames.size()); ++i) {
+        cloudMasks[static_cast<size_t>(i)] = IO::ReadImage(cloudMaskNames[static_cast<size_t>(i)]);
+    }
+    loadingTimer.Stop();
+
+    auto preprocessAlgorithm = std::make_unique<Algorithm::PreprocessAlgorithm::GeoCoordinateAlign>(imageDatas, cloudMasks);
+    SuperDebug::ScopeTimer preprocessTimer("VoronoiPartitionMosaic Preprocess");
+    preprocessAlgorithm->Execute();
+    preprocessTimer.Stop();
+
+    auto voronoiMosaic = std::make_unique<Algorithm::MosaicAlgorithm::VoronoiPartitionMosaic>(
+        preprocessAlgorithm->AlignedImages,
+        preprocessAlgorithm->AlignedMaskImages);
+    SuperDebug::ScopeTimer algorithmTimer("VoronoiPartitionMosaic Execution");
+    voronoiMosaic->Execute();
+    IO::SaveImage(voronoiMosaic->AlgorithmResult, kGeoSaveImagePath, kVoronoiPartitionSaveImageName);
+    algorithmTimer.Stop();
 }
 
 void RunColorBalanceSample() {
